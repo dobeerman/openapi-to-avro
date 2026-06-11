@@ -48,7 +48,7 @@ class _Converter:
                 record_name = self._response_record_name(operation)
                 response_doc = self._response_doc(operation)
                 data_types.append(
-                    self._schema_to_avro(
+                    self._response_schema_to_avro(
                         operation.schema,
                         record_name,
                         record_doc=response_doc,
@@ -131,6 +131,36 @@ class _Converter:
                     raise InvalidOpenApiError(f"GET operation for {path} must be an object")
                 selected.extend(self._select_responses(path, operation))
         return selected
+
+    def _response_schema_to_avro(
+        self,
+        schema: JsonDict,
+        name_hint: str,
+        *,
+        record_doc: str,
+        name_identity: NameIdentity,
+    ) -> JsonDict:
+        avro_type = self._schema_to_avro(
+            schema,
+            name_hint,
+            record_doc=record_doc,
+            name_identity=name_identity,
+        )
+        if isinstance(avro_type, dict) and avro_type.get("type") == "record":
+            return avro_type
+
+        record_name = self._allocate_name(self._pascal(name_hint), name_identity)
+        return {
+            "type": "record",
+            "name": record_name,
+            "doc": record_doc,
+            "fields": [
+                {
+                    "name": "items",
+                    "type": avro_type,
+                }
+            ],
+        }
 
     def _select_responses(self, path: str, operation: JsonDict) -> list[SelectedOperation]:
         responses = operation.get("responses")

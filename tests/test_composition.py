@@ -124,6 +124,55 @@ def test_complex_fixture_flattens_all_of_and_maps_one_of_to_union() -> None:
     parse_schema(schema)
 
 
+def test_top_level_array_response_is_wrapped_in_named_record() -> None:
+    openapi_doc = _base_doc(
+        {
+            "/attributes": {
+                "get": {
+                    "operationId": "listAttributes",
+                    "tags": ["Attribute"],
+                    "responses": _json_response(
+                        {
+                            "type": "array",
+                            "items": {"$ref": "#/components/schemas/AttributeDto"},
+                        }
+                    ),
+                }
+            }
+        },
+        {
+            "AttributeDto": {
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                    "id": {"type": "integer", "format": "int32"},
+                    "name": {"type": "string"},
+                },
+            }
+        },
+    )
+
+    schema = convert_openapi_to_avro(openapi_doc, _options())
+
+    branch = _data_branches(schema)[0]
+    assert isinstance(branch, dict)
+    assert branch["type"] == "record"
+    assert branch["name"] == "ListAttributesResponse"
+    fields = _record_fields(branch)
+    assert fields["items"]["type"] == {
+        "type": "array",
+        "items": {
+            "type": "record",
+            "name": "AttributeDto",
+            "fields": [
+                {"name": "id", "type": "int"},
+                {"name": "name", "type": "string"},
+            ],
+        },
+    }
+    parse_schema(schema)
+
+
 def test_all_of_conflicting_fields_fail_in_strict_mode() -> None:
     openapi_doc = _base_doc(
         {
