@@ -216,7 +216,7 @@ class _Converter:
 
         enum_values = schema.get("enum")
         if enum_values is not None:
-            return self._enum_to_avro(enum_values, name_hint)
+            return self._enum_to_avro(enum_values, name_hint, name_identity=name_identity)
 
         if schema_type is None and "properties" not in schema:
             raise UnsupportedSchemaError(f"Schema {name_hint} does not define a supported type")
@@ -512,15 +512,23 @@ class _Converter:
                     f"Unsupported schema keyword {keyword!r} in MVP converter"
                 )
 
-    def _enum_to_avro(self, enum_values: Any, name_hint: str) -> JsonDict:
+    def _enum_to_avro(
+        self, enum_values: Any, name_hint: str, *, name_identity: NameIdentity | None = None
+    ) -> JsonDict:
         if not isinstance(enum_values, list) or not all(
             isinstance(value, str) for value in enum_values
         ):
             raise UnsupportedSchemaError(f"Enum schema {name_hint} must contain string values")
         symbols = [self._require_enum_symbol(value, f"enum {name_hint}") for value in enum_values]
+        if name_identity is not None:
+            enum_name = self._allocate_name(self._pascal(name_hint), name_identity)
+        else:
+            enum_name = self._allocate_name(
+                f"{self._pascal(name_hint)}Enum", ("enum", tuple(symbols))
+            )
         return {
             "type": "enum",
-            "name": self._allocate_name(f"{self._pascal(name_hint)}Enum", ("enum", tuple(symbols))),
+            "name": enum_name,
             "symbols": symbols,
         }
 

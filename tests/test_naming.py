@@ -151,6 +151,53 @@ def test_component_refs_are_inlined_once_then_reused_by_name() -> None:
     assert away_field["type"] == "Team"
 
 
+def test_component_enum_refs_are_defined_with_component_name_then_reused() -> None:
+    schema = convert_openapi_to_avro(
+        _base_doc(
+            {
+                "/members": {
+                    "get": {
+                        "operationId": "listMembers",
+                        "tags": ["Member"],
+                        "responses": _json_response(
+                            {
+                                "type": "object",
+                                "required": ["primary", "secondary"],
+                                "properties": {
+                                    "primary": {"$ref": "#/components/schemas/MemberType"},
+                                    "secondary": {"$ref": "#/components/schemas/MemberType"},
+                                },
+                            }
+                        ),
+                    }
+                }
+            },
+            {
+                "MemberType": {
+                    "type": "string",
+                    "enum": ["unknown", "team", "federation"],
+                }
+            },
+        ),
+        _options(),
+    )
+
+    branch = _data_branches(schema)[0]
+    assert isinstance(branch, dict)
+    fields = branch["fields"]
+    assert isinstance(fields, list)
+    primary = fields[0]
+    secondary = fields[1]
+    assert isinstance(primary, dict)
+    assert isinstance(secondary, dict)
+    assert primary["type"] == {
+        "type": "enum",
+        "name": "MemberType",
+        "symbols": ["unknown", "team", "federation"],
+    }
+    assert secondary["type"] == "MemberType"
+
+
 def test_external_ref_fails_with_clear_project_error() -> None:
     with pytest.raises(UnsupportedSchemaError, match="Unsupported \\$ref"):
         convert_openapi_to_avro(
