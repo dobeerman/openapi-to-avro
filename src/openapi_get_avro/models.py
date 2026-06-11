@@ -1,0 +1,39 @@
+"""Typed configuration models for schema generation."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal
+
+NameStrategy = Literal["operationId", "path"]
+UnknownObjectPolicy = Literal["map", "string", "empty-record", "fail"]
+AnyOfPolicy = Literal["fail", "union"]
+EnumPolicy = Literal["fail", "string", "sanitize"]
+
+
+@dataclass(frozen=True)
+class GenerationOptions:
+    """Options controlling OpenAPI to Avro generation."""
+
+    namespace: str
+    root_name: str
+    include_status_codes: tuple[str, ...] = ("200",)
+    content_type: str = "application/json"
+    strict: bool = True
+    name_strategy: NameStrategy = "operationId"
+    unknown_object_policy: UnknownObjectPolicy = "fail"
+    any_of_policy: AnyOfPolicy = "fail"
+    enum_policy: EnumPolicy = "fail"
+    timestamp_logical_type: Literal["timestamp-millis", "string"] = "timestamp-millis"
+
+
+@dataclass(frozen=True)
+class SelectedOperation:
+    """A GET operation selected for Avro generation."""
+
+    path: str
+    method: str
+    operation_id: str | None
+    status_code: str
+    response_description: str | None
+    schema: dict[str, object]

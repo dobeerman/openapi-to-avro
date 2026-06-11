@@ -1,0 +1,11 @@
+# Project-local Codex defaults. These load only after you trust this repository in Codex.
+# Keep provider/auth settings in your user-level ~/.codex/config.toml, not here.
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+# Uncomment if this model is available in your Codex setup.
+# model = "gpt-5.5"
+
+[features]
+goals = true

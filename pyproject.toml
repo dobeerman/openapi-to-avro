@@ -1,0 +1,90 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "openapi-get-avro"
+version = "0.1.0"
+description = "Convert OpenAPI GET responses into a single Avro envelope schema"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Data Engineering Team" }]
+dependencies = [
+  "fastavro>=1.9",
+  "jsonschema>=4.22",
+  "referencing>=0.35",
+  "ruamel.yaml>=0.18",
+  "typer>=0.12",
+]
+
+[dependency-groups]
+dev = [
+  "mypy>=1.11",
+  "pytest>=8.2",
+  "ruff>=0.8",
+  "types-jsonschema>=4.23",
+]
+
+[project.scripts]
+openapi-get-avro = "openapi_get_avro.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/openapi_get_avro"]
+
+[tool.uv]
+package = true
+default-groups = ["dev"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+exclude = [
+  ".git",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".venv",
+  "build",
+  "dist",
+]
+
+[tool.ruff.lint]
+select = [
+  "B",
+  "C4",
+  "E",
+  "F",
+  "I",
+  "ISC",
+  "PERF",
+  "PIE",
+  "PL",
+  "PTH",
+  "RUF",
+  "SIM",
+  "UP",
+]
+ignore = [
+  "PLR0913",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["PLR2004"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+skip-magic-trailing-comma = false
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+packages = ["openapi_get_avro"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

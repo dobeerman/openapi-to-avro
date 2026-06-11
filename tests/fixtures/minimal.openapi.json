@@ -1,0 +1,88 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Sports API",
+    "description": "Sports domain API"
+  },
+  "paths": {
+    "/matches/{id}": {
+      "get": {
+        "operationId": "getMatch",
+        "tags": [
+          "Match"
+        ],
+        "summary": "Get a match by ID",
+        "responses": {
+          "200": {
+            "description": "Match response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Match"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createMatch",
+        "responses": {
+          "201": {
+            "description": "Ignored because this is POST"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Match": {
+        "type": "object",
+        "description": "Match object",
+        "required": [
+          "id",
+          "kickoff"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Match ID"
+          },
+          "kickoff": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "venue": {
+            "$ref": "#/components/schemas/Venue"
+          }
+        }
+      },
+      "Venue": {
+        "type": "object",
+        "description": "Venue object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "capacity": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      }
+    }
+  }
+}

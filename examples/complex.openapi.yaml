@@ -1,0 +1,71 @@
+openapi: 3.0.3
+info:
+  title: Complex Sports API
+  description: Complex fixture for composition, arrays, maps, and oneOf.
+paths:
+  /teams/{id}:
+    get:
+      operationId: getTeam
+      tags: [Team]
+      responses:
+        '200':
+          description: Team response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+  /search:
+    get:
+      operationId: searchEntities
+      tags: [Search]
+      responses:
+        '200':
+          description: Search response
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      oneOf:
+                        - $ref: '#/components/schemas/Team'
+                        - $ref: '#/components/schemas/Venue'
+components:
+  schemas:
+    EntityBase:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          format: uuid
+    Team:
+      allOf:
+        - $ref: '#/components/schemas/EntityBase'
+        - type: object
+          required: [name]
+          properties:
+            name:
+              type: string
+            aliases:
+              type: array
+              items:
+                type: string
+            metadata:
+              type: object
+              additionalProperties:
+                type: string
+    Venue:
+      allOf:
+        - $ref: '#/components/schemas/EntityBase'
+        - type: object
+          required: [name]
+          properties:
+            name:
+              type: string
+            opened:
+              type: string
+              format: date

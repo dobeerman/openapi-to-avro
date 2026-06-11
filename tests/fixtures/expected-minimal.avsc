@@ -1,0 +1,112 @@
+{
+  "type": "record",
+  "namespace": "com.example.sports",
+  "name": "SportsEnvelope",
+  "doc": "Sports domain API",
+  "fields": [
+    {
+      "name": "id",
+      "type": {
+        "type": "string",
+        "logicalType": "uuid"
+      }
+    },
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
+    },
+    {
+      "name": "operation",
+      "type": {
+        "type": "enum",
+        "name": "Operation",
+        "symbols": [
+          "CREATED",
+          "UPDATED",
+          "DELETED"
+        ]
+      }
+    },
+    {
+      "name": "entity_type",
+      "type": {
+        "type": "enum",
+        "name": "EntityType",
+        "symbols": [
+          "MATCH"
+        ]
+      }
+    },
+    {
+      "name": "data",
+      "type": [
+        {
+          "type": "record",
+          "name": "GetMatchResponse",
+          "doc": "GET /matches/{id} 200 response. Match response",
+          "fields": [
+            {
+              "name": "id",
+              "type": {
+                "type": "string",
+                "logicalType": "uuid"
+              },
+              "doc": "Match ID"
+            },
+            {
+              "name": "kickoff",
+              "type": {
+                "type": "long",
+                "logicalType": "timestamp-millis"
+              }
+            },
+            {
+              "name": "name",
+              "type": [
+                "null",
+                "string"
+              ],
+              "default": null
+            },
+            {
+              "name": "venue",
+              "type": [
+                "null",
+                {
+                  "type": "record",
+                  "name": "Venue",
+                  "doc": "Venue object",
+                  "fields": [
+                    {
+                      "name": "id",
+                      "type": {
+                        "type": "string",
+                        "logicalType": "uuid"
+                      }
+                    },
+                    {
+                      "name": "name",
+                      "type": "string"
+                    },
+                    {
+                      "name": "capacity",
+                      "type": [
+                        "null",
+                        "int"
+                      ],
+                      "default": null
+                    }
+                  ]
+                }
+              ],
+              "default": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
