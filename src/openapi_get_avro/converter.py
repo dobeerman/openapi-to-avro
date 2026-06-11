@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Hashable
 from typing import Any
 
 from fastavro import parse_schema
@@ -20,6 +21,7 @@ LOCAL_COMPONENT_REF_PREFIX = "#/components/schemas/"
 HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
 
 JsonDict = dict[str, Any]
+NameIdentity = tuple[Hashable, ...]
 
 
 class _Converter:
@@ -27,6 +29,13 @@ class _Converter:
         self.openapi_doc = openapi_doc
         self.options = options
         self.components = self._components()
+        self.allocated_names: dict[str, NameIdentity] = {
+            options.root_name: ("root",),
+            "Operation": ("envelope", "operation"),
+            "EntityType": ("envelope", "entity_type"),
+        }
+        self.ref_names: dict[str, str] = {}
+        self.refs_in_progress: set[str] = set()
 
     def convert(self) -> JsonDict:
         selected = self._select_operations()
@@ -34,10 +43,16 @@ class _Converter:
         entity_symbols: list[str] = []
 
         for operation in selected:
+            response_identity = self._response_identity(operation)
             record_name = self._response_record_name(operation)
             response_doc = self._response_doc(operation)
             data_types.append(
-                self._schema_to_avro(operation.schema, record_name, record_doc=response_doc)
+                self._schema_to_avro(
+                    operation.schema,
+                    record_name,
+                    record_doc=response_doc,
+                    name_identity=response_identity,
+                )
             )
             symbol_source = self._first_tag(operation) or record_name
             symbol = self._enum_symbol_from_text(symbol_source)
@@ -47,7 +62,7 @@ class _Converter:
         schema: JsonDict = {
             "type": "record",
             "namespace": self.options.namespace,
-            "name": self._require_avro_name(self.options.root_name, "root record name"),
+            "name": self._sanitize_avro_name(self.options.root_name, "root record name"),
             "doc": self._root_doc(),
             "fields": [
                 {
@@ -152,10 +167,15 @@ class _Converter:
         return selected
 
     def _schema_to_avro(
-        self, schema: JsonDict, name_hint: str, *, record_doc: str | None = None
+        self,
+        schema: JsonDict,
+        name_hint: str,
+        *,
+        record_doc: str | None = None,
+        name_identity: NameIdentity | None = None,
     ) -> Any:
         if "$ref" in schema and record_doc is None:
-            name_hint = self._ref_name(schema)
+            return self._component_ref_to_avro(schema)
         schema = self._resolve_ref(schema)
         self._reject_unsupported(schema)
 
@@ -168,7 +188,15 @@ class _Converter:
                 non_null_schema["type"] = [
                     item for item in non_null_schema["type"] if item != "null"
                 ]
-            return ["null", self._schema_to_avro(non_null_schema, name_hint, record_doc=record_doc)]
+            return [
+                "null",
+                self._schema_to_avro(
+                    non_null_schema,
+                    name_hint,
+                    record_doc=record_doc,
+                    name_identity=name_identity,
+                ),
+            ]
 
         enum_values = schema.get("enum")
         if enum_values is not None:
@@ -176,13 +204,30 @@ class _Converter:
 
         if schema_type is None and "properties" not in schema:
             raise UnsupportedSchemaError(f"Schema {name_hint} does not define a supported type")
-        return self._typed_schema_to_avro(schema, schema_type, name_hint, record_doc=record_doc)
+        return self._typed_schema_to_avro(
+            schema,
+            schema_type,
+            name_hint,
+            record_doc=record_doc,
+            name_identity=name_identity,
+        )
 
     def _typed_schema_to_avro(
-        self, schema: JsonDict, schema_type: str | None, name_hint: str, *, record_doc: str | None
+        self,
+        schema: JsonDict,
+        schema_type: str | None,
+        name_hint: str,
+        *,
+        record_doc: str | None,
+        name_identity: NameIdentity | None,
     ) -> Any:
         if schema_type == "object" or "properties" in schema:
-            avro_type: Any = self._object_to_avro(schema, name_hint, record_doc=record_doc)
+            avro_type: Any = self._object_to_avro(
+                schema,
+                name_hint,
+                record_doc=record_doc,
+                name_identity=name_identity,
+            )
         elif schema_type == "array":
             items = schema.get("items")
             if not isinstance(items, dict):
@@ -206,7 +251,12 @@ class _Converter:
         return avro_type
 
     def _object_to_avro(
-        self, schema: JsonDict, name_hint: str, *, record_doc: str | None = None
+        self,
+        schema: JsonDict,
+        name_hint: str,
+        *,
+        record_doc: str | None = None,
+        name_identity: NameIdentity | None = None,
     ) -> JsonDict:
         properties = schema.get("properties", {})
         if not isinstance(properties, dict):
@@ -256,27 +306,53 @@ class _Converter:
                 field["doc"] = description
             fields.append(field)
 
-        record: JsonDict = {
-            "type": "record",
-            "name": self._require_avro_name(self._pascal(name_hint), f"record {name_hint}"),
-        }
+        record_name = self._allocate_name(
+            self._pascal(name_hint), name_identity or ("record", self._schema_fingerprint(schema))
+        )
+        record: JsonDict = {"type": "record", "name": record_name}
         doc = record_doc if record_doc is not None else schema.get("description")
         if isinstance(doc, str):
             record["doc"] = doc
         record["fields"] = fields
         return record
 
+    def _component_ref_to_avro(self, schema: JsonDict) -> Any:
+        ref = self._ref_value(schema)
+        if ref in self.ref_names:
+            return self.ref_names[ref]
+
+        component_name = self._ref_name(schema)
+        allocated_name = self._allocate_name(self._pascal(component_name), ("component-ref", ref))
+        self.ref_names[ref] = allocated_name
+        if ref in self.refs_in_progress:
+            return allocated_name
+
+        self.refs_in_progress.add(ref)
+        try:
+            resolved = self._resolve_ref(schema)
+            return self._schema_to_avro(
+                resolved,
+                allocated_name,
+                name_identity=("component-ref", ref),
+            )
+        finally:
+            self.refs_in_progress.remove(ref)
+
     def _resolve_ref(self, schema: JsonDict) -> JsonDict:
         ref = schema.get("$ref")
         if ref is None:
             return schema
-        name = self._ref_name(schema)
+        ref = self._ref_value(schema)
+        name = ref.removeprefix(LOCAL_COMPONENT_REF_PREFIX)
         resolved = self.components.get(name)
         if not isinstance(resolved, dict):
             raise InvalidOpenApiError(f"Unresolvable local component ref {ref!r}")
         return resolved
 
     def _ref_name(self, schema: JsonDict) -> str:
+        return self._ref_value(schema).removeprefix(LOCAL_COMPONENT_REF_PREFIX)
+
+    def _ref_value(self, schema: JsonDict) -> str:
         ref = schema.get("$ref")
         if not isinstance(ref, str):
             raise InvalidOpenApiError("$ref must be a string")
@@ -284,7 +360,7 @@ class _Converter:
             raise UnsupportedSchemaError(
                 f"Unsupported $ref {ref!r}; only local component refs are supported"
             )
-        return ref.removeprefix(LOCAL_COMPONENT_REF_PREFIX)
+        return ref
 
     def _reject_unsupported(self, schema: JsonDict) -> None:
         for keyword in ("allOf", "oneOf", "anyOf", "not", "patternProperties"):
@@ -301,7 +377,7 @@ class _Converter:
         symbols = [self._require_enum_symbol(value, f"enum {name_hint}") for value in enum_values]
         return {
             "type": "enum",
-            "name": self._require_avro_name(f"{self._pascal(name_hint)}Enum", f"enum {name_hint}"),
+            "name": self._allocate_name(f"{self._pascal(name_hint)}Enum", ("enum", tuple(symbols))),
             "symbols": symbols,
         }
 
@@ -385,7 +461,10 @@ class _Converter:
             base = self._path_name(operation.method, operation.path)
         if len(self.options.include_status_codes) > 1:
             base = f"{base}{operation.status_code}"
-        return self._require_avro_name(f"{base}Response", "response record name")
+        return self._allocate_name(f"{base}Response", self._response_identity(operation))
+
+    def _response_identity(self, operation: SelectedOperation) -> NameIdentity:
+        return ("response", operation.path, operation.method, operation.status_code)
 
     def _path_name(self, method: str, path: str) -> str:
         parts = [self._pascal(method)]
@@ -410,6 +489,51 @@ class _Converter:
         if name[0].isdigit():
             name = f"N{name}"
         return name
+
+    def _allocate_name(self, preferred_name: str, identity: NameIdentity) -> str:
+        name = self._sanitize_avro_name(preferred_name, "generated name")
+        existing_identity = self.allocated_names.get(name)
+        if existing_identity is None:
+            self.allocated_names[name] = identity
+            return name
+        if existing_identity == identity:
+            return name
+
+        suffix = 2
+        while True:
+            candidate = f"{name}{suffix}"
+            existing_identity = self.allocated_names.get(candidate)
+            if existing_identity is None:
+                self.allocated_names[candidate] = identity
+                return candidate
+            if existing_identity == identity:
+                return candidate
+            suffix += 1
+
+    def _sanitize_avro_name(self, name: str, context: str) -> str:
+        words = self._words(name)
+        if words:
+            return self._require_avro_name(self._pascal(name), context)
+        return self._require_avro_name(name, context)
+
+    def _schema_fingerprint(self, value: Any) -> NameIdentity:
+        if isinstance(value, dict):
+            return (
+                "dict",
+                *(
+                    (key, self._schema_fingerprint(item))
+                    for key, item in value.items()
+                    if key != "description"
+                ),
+            )
+        if isinstance(value, list):
+            return (
+                "list",
+                *(self._schema_fingerprint(item) for item in value),
+            )
+        if isinstance(value, str | int | float | bool) or value is None:
+            return ("scalar", value)
+        return ("repr", repr(value))
 
     def _words(self, text: str) -> list[str]:
         normalized = re.sub(r"[^0-9A-Za-z]+", " ", text)
