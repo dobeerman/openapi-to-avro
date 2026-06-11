@@ -177,9 +177,7 @@ class _Converter:
         if "$ref" in schema and record_doc is None:
             return self._component_ref_to_avro(schema)
         schema = self._resolve_ref(schema)
-        self._reject_unsupported(schema)
 
-        schema_type = self._schema_type(schema)
         nullable = self._is_nullable(schema)
         if nullable:
             non_null_schema = dict(schema)
@@ -188,15 +186,28 @@ class _Converter:
                 non_null_schema["type"] = [
                     item for item in non_null_schema["type"] if item != "null"
                 ]
-            return [
-                "null",
+            return self._prepend_null(
                 self._schema_to_avro(
                     non_null_schema,
                     name_hint,
                     record_doc=record_doc,
                     name_identity=name_identity,
-                ),
-            ]
+                )
+            )
+        if "allOf" in schema:
+            schema = self._flatten_all_of(schema, name_hint)
+        if "oneOf" in schema:
+            return self._composition_union_to_avro(schema["oneOf"], name_hint, keyword="oneOf")
+        if "anyOf" in schema:
+            if self.options.any_of_policy == "fail":
+                raise UnsupportedSchemaError(
+                    f"Unsupported schema keyword 'anyOf' in {name_hint}; "
+                    "set any_of_policy='union' to map it to an Avro union"
+                )
+            return self._composition_union_to_avro(schema["anyOf"], name_hint, keyword="anyOf")
+
+        self._reject_unsupported(schema)
+        schema_type = self._schema_type(schema)
 
         enum_values = schema.get("enum")
         if enum_values is not None:
@@ -296,7 +307,7 @@ class _Converter:
             avro_type = self._schema_to_avro(field_schema, f"{name_hint}{self._pascal(field_name)}")
             nullable = field_name not in required_names
             if nullable and not self._is_null_union(avro_type):
-                avro_type = ["null", avro_type]
+                avro_type = self._prepend_null(avro_type)
 
             field: JsonDict = {"name": field_name, "type": avro_type}
             if self._is_null_union(avro_type):
@@ -315,6 +326,126 @@ class _Converter:
             record["doc"] = doc
         record["fields"] = fields
         return record
+
+    def _flatten_all_of(self, schema: JsonDict, name_hint: str) -> JsonDict:
+        branches = schema.get("allOf")
+        if not isinstance(branches, list) or not branches:
+            raise UnsupportedSchemaError(f"Schema {name_hint} allOf must be a non-empty array")
+
+        merged_required: list[str] = []
+        merged_properties: JsonDict = {}
+        for index, branch in enumerate(branches):
+            branch_properties, branch_required = self._all_of_branch_parts(branch, name_hint, index)
+            for required_field in branch_required:
+                if required_field not in merged_required:
+                    merged_required.append(required_field)
+            for field_name, field_schema in branch_properties.items():
+                self._merge_all_of_property(merged_properties, field_name, field_schema, name_hint)
+
+        merged: JsonDict = {"type": "object", "properties": merged_properties}
+        if merged_required:
+            merged["required"] = merged_required
+        description = schema.get("description")
+        if isinstance(description, str):
+            merged["description"] = description
+        return merged
+
+    def _all_of_branch_parts(
+        self, branch: Any, name_hint: str, index: int
+    ) -> tuple[JsonDict, list[str]]:
+        if not isinstance(branch, dict):
+            raise UnsupportedSchemaError(
+                f"Schema {name_hint} allOf branch {index} must be an object"
+            )
+        resolved_branch = self._resolve_ref(branch)
+        if "allOf" in resolved_branch:
+            resolved_branch = self._flatten_all_of(resolved_branch, f"{name_hint}AllOf{index}")
+        if "oneOf" in resolved_branch or "anyOf" in resolved_branch:
+            raise UnsupportedSchemaError(
+                f"Schema {name_hint} allOf branch {index} cannot contain oneOf/anyOf"
+            )
+
+        branch_type = self._schema_type(resolved_branch)
+        if branch_type not in {None, "object"} and "properties" not in resolved_branch:
+            raise UnsupportedSchemaError(
+                f"Schema {name_hint} allOf branch {index} must be an object schema"
+            )
+        branch_properties = resolved_branch.get("properties", {})
+        if not isinstance(branch_properties, dict):
+            raise UnsupportedSchemaError(
+                f"Schema {name_hint} allOf branch {index} properties must be an object"
+            )
+        branch_required = resolved_branch.get("required", [])
+        if not isinstance(branch_required, list) or not all(
+            isinstance(item, str) for item in branch_required
+        ):
+            raise InvalidOpenApiError(
+                f"Schema {name_hint} allOf branch {index} required must be a string array"
+            )
+        return branch_properties, branch_required
+
+    def _merge_all_of_property(
+        self, merged_properties: JsonDict, field_name: str, field_schema: Any, name_hint: str
+    ) -> None:
+        if not isinstance(field_name, str) or not isinstance(field_schema, dict):
+            raise UnsupportedSchemaError(
+                f"Schema {name_hint} allOf branch properties must map to schemas"
+            )
+        existing_schema = merged_properties.get(field_name)
+        if existing_schema is not None and self._schema_fingerprint(
+            existing_schema
+        ) != self._schema_fingerprint(field_schema):
+            raise UnsupportedSchemaError(
+                f"Conflicting allOf field {field_name!r} in schema {name_hint}"
+            )
+        merged_properties[field_name] = field_schema
+
+    def _composition_union_to_avro(
+        self, branches: Any, name_hint: str, *, keyword: str
+    ) -> list[Any]:
+        if not isinstance(branches, list) or not branches:
+            raise UnsupportedSchemaError(f"Schema {name_hint} {keyword} must be a non-empty array")
+
+        avro_types: list[Any] = []
+        seen_names: set[str] = set()
+        for index, branch in enumerate(branches):
+            if not isinstance(branch, dict):
+                raise UnsupportedSchemaError(
+                    f"Schema {name_hint} {keyword} branch {index} must be an object"
+                )
+            avro_type = self._schema_to_avro(
+                branch, f"{name_hint}{self._pascal(keyword)}{index + 1}"
+            )
+            branch_name = self._named_type_name(avro_type)
+            if branch_name is None:
+                raise UnsupportedSchemaError(
+                    f"Schema {name_hint} {keyword} branch {index} does not map to a named Avro type"
+                )
+            if branch_name in seen_names:
+                raise UnsupportedSchemaError(
+                    f"Schema {name_hint} {keyword} contains duplicate branch {branch_name!r}"
+                )
+            seen_names.add(branch_name)
+            avro_types.append(avro_type)
+        return avro_types
+
+    def _named_type_name(self, avro_type: Any) -> str | None:
+        if isinstance(avro_type, str) and avro_type not in {
+            "null",
+            "boolean",
+            "int",
+            "long",
+            "float",
+            "double",
+            "bytes",
+            "string",
+        }:
+            return avro_type
+        if isinstance(avro_type, dict) and avro_type.get("type") in {"record", "enum", "fixed"}:
+            name = avro_type.get("name")
+            if isinstance(name, str):
+                return name
+        return None
 
     def _component_ref_to_avro(self, schema: JsonDict) -> Any:
         ref = self._ref_value(schema)
@@ -363,7 +494,14 @@ class _Converter:
         return ref
 
     def _reject_unsupported(self, schema: JsonDict) -> None:
-        for keyword in ("allOf", "oneOf", "anyOf", "not", "patternProperties"):
+        for keyword in (
+            "not",
+            "patternProperties",
+            "dependentSchemas",
+            "if",
+            "then",
+            "else",
+        ):
             if keyword in schema:
                 raise UnsupportedSchemaError(
                     f"Unsupported schema keyword {keyword!r} in MVP converter"
@@ -424,6 +562,11 @@ class _Converter:
 
     def _is_null_union(self, avro_type: Any) -> bool:
         return isinstance(avro_type, list) and bool(avro_type) and avro_type[0] == "null"
+
+    def _prepend_null(self, avro_type: Any) -> list[Any]:
+        if isinstance(avro_type, list):
+            return ["null", *(item for item in avro_type if item != "null")]
+        return ["null", avro_type]
 
     def _root_doc(self) -> str:
         info = self.openapi_doc.get("info", {})
