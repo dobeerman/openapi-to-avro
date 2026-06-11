@@ -15,7 +15,7 @@ This project uses:
 
 Do not install dependencies with `pip install -e '.[dev]'` during normal development. Use the checked-in `uv.lock` and run project commands through `uv run`.
 
-## Target CLI
+## CLI usage
 
 ```bash
 uv run openapi-get-avro generate \
@@ -24,6 +24,47 @@ uv run openapi-get-avro generate \
   --rootname SportsEnvelope \
   --output build/sports-envelope.avsc
 ```
+
+If `--output` is omitted, the generated `.avsc` JSON is written to stdout.
+
+The converter reads JSON and YAML OpenAPI files. This example exercises `allOf`
+composition, maps, arrays, and `oneOf` unions:
+
+```bash
+uv run openapi-get-avro generate \
+  --input examples/complex.openapi.yaml \
+  --namespace com.example.sports \
+  --rootname SportsEnvelope \
+  --output build/complex-sports-envelope.avsc
+```
+
+Useful policy and naming options:
+
+```bash
+uv run openapi-get-avro generate \
+  --input examples/complex.openapi.yaml \
+  --namespace com.example.sports \
+  --rootname SportsEnvelope \
+  --name-strategy operationId \
+  --include-status-codes 200,206,default \
+  --content-type application/json \
+  --any-of-policy fail \
+  --enum-policy fail \
+  --unknown-object-policy fail \
+  --output build/sports-envelope.avsc
+```
+
+Accepted CLI values:
+
+- `--name-strategy`: `operationId` or `path`
+- `--any-of-policy`: `fail` or `union`
+- `--enum-policy`: `fail`, `string`, or `sanitize`
+- `--unknown-object-policy`: `fail`, `map`, `string`, or `empty-record`
+- `--include-status-codes`: comma-separated response codes, evaluated in the order provided
+
+The implemented strict behavior is the default: invalid enum values and ambiguous
+free-form objects fail. `--any-of-policy union` is implemented when every branch
+maps to a unique named Avro type.
 
 ## Expected root shape
 
@@ -44,6 +85,34 @@ uv run openapi-get-avro generate \
 ```
 
 Avro does not use a literal `oneof` keyword. Use an Avro union, represented by a JSON array, for the `data` field.
+
+## What is included
+
+By default, the generator includes only:
+
+- `GET` operations under `paths`
+- status code `200`
+- response content type `application/json`
+
+Non-GET methods and non-JSON responses are ignored. Local component refs such as
+`#/components/schemas/Team` are resolved. Unsupported remote refs fail with a
+project-specific error.
+
+## Troubleshooting
+
+Most conversion failures include the OpenAPI response being converted, for example:
+
+```text
+Failed to generate Avro schema for examples/api.yaml: GET /matches/{id} response 200: ...
+```
+
+Common causes:
+
+- `Unsupported $ref`: only local `#/components/schemas/...` refs are supported.
+- `Invalid Avro enum symbol`: enum values must already be valid Avro symbols in strict mode.
+- `Conflicting allOf field`: two `allOf` branches define the same property with different schemas.
+- `anyOf`: the default policy is `fail`; use `--any-of-policy union` only when every branch maps to a unique named Avro type.
+- Free-form objects such as `{ "type": "object" }` are ambiguous in strict mode.
 
 ## Local development
 

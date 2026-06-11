@@ -43,19 +43,24 @@ class _Converter:
         entity_symbols: list[str] = []
 
         for operation in selected:
-            response_identity = self._response_identity(operation)
-            record_name = self._response_record_name(operation)
-            response_doc = self._response_doc(operation)
-            data_types.append(
-                self._schema_to_avro(
-                    operation.schema,
-                    record_name,
-                    record_doc=response_doc,
-                    name_identity=response_identity,
+            try:
+                response_identity = self._response_identity(operation)
+                record_name = self._response_record_name(operation)
+                response_doc = self._response_doc(operation)
+                data_types.append(
+                    self._schema_to_avro(
+                        operation.schema,
+                        record_name,
+                        record_doc=response_doc,
+                        name_identity=response_identity,
+                    )
                 )
-            )
-            symbol_source = self._first_tag(operation) or record_name
-            symbol = self._enum_symbol_from_text(symbol_source)
+                symbol_source = self._first_tag(operation) or record_name
+                symbol = self._enum_symbol_from_text(symbol_source)
+            except OpenApiAvroError as exc:
+                raise type(exc)(
+                    f"GET {operation.path} response {operation.status_code}: {exc}"
+                ) from exc
             if symbol not in entity_symbols:
                 entity_symbols.append(symbol)
 
@@ -603,11 +608,16 @@ class _Converter:
         else:
             base = self._path_name(operation.method, operation.path)
         if len(self.options.include_status_codes) > 1:
-            base = f"{base}{operation.status_code}"
+            base = f"{base}{self._status_suffix(operation.status_code)}"
         return self._allocate_name(f"{base}Response", self._response_identity(operation))
 
     def _response_identity(self, operation: SelectedOperation) -> NameIdentity:
         return ("response", operation.path, operation.method, operation.status_code)
+
+    def _status_suffix(self, status_code: str) -> str:
+        if status_code.isdecimal():
+            return status_code
+        return self._pascal(status_code)
 
     def _path_name(self, method: str, path: str) -> str:
         parts = [self._pascal(method)]

@@ -4,17 +4,29 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, TypeVar
 
 import typer
 from ruamel.yaml import YAML
 
 from .converter import convert_openapi_to_avro
 from .exceptions import OpenApiAvroError
-from .models import GenerationOptions
+from .models import AnyOfPolicy, EnumPolicy, GenerationOptions, NameStrategy, UnknownObjectPolicy
 
 app = typer.Typer(
     no_args_is_help=True, help="Convert OpenAPI GET responses to Avro envelope schema"
+)
+
+TChoice = TypeVar("TChoice", bound=str)
+
+NAME_STRATEGIES: tuple[NameStrategy, ...] = ("operationId", "path")
+ANY_OF_POLICIES: tuple[AnyOfPolicy, ...] = ("fail", "union")
+ENUM_POLICIES: tuple[EnumPolicy, ...] = ("fail", "string", "sanitize")
+UNKNOWN_OBJECT_POLICIES: tuple[UnknownObjectPolicy, ...] = (
+    "fail",
+    "map",
+    "string",
+    "empty-record",
 )
 
 
@@ -32,6 +44,21 @@ def _load_document(path: Path) -> dict[str, Any]:
     if not isinstance(loaded, dict):
         raise typer.BadParameter("Input document must be a JSON/YAML object")
     return loaded
+
+
+def _parse_choice(value: str, allowed: tuple[TChoice, ...], option_name: str) -> TChoice:
+    normalized = value.strip()
+    if normalized in allowed:
+        return normalized
+    choices = ", ".join(allowed)
+    raise typer.BadParameter(f"{option_name} must be one of: {choices}")
+
+
+def _parse_status_codes(value: str) -> tuple[str, ...]:
+    status_codes = tuple(code.strip() for code in value.split(",") if code.strip())
+    if not status_codes:
+        raise typer.BadParameter("--include-status-codes must include at least one status code")
+    return status_codes
 
 
 @app.command()
@@ -56,6 +83,28 @@ def generate(
     strict: Annotated[
         bool, typer.Option("--strict/--lenient", help="Fail on ambiguous constructs")
     ] = True,
+    name_strategy: Annotated[
+        str,
+        typer.Option(
+            "--name-strategy",
+            help="Response naming strategy: operationId or path",
+        ),
+    ] = "operationId",
+    any_of_policy: Annotated[
+        str,
+        typer.Option("--any-of-policy", help="anyOf handling policy: fail or union"),
+    ] = "fail",
+    enum_policy: Annotated[
+        str,
+        typer.Option("--enum-policy", help="Enum handling policy: fail, string, or sanitize"),
+    ] = "fail",
+    unknown_object_policy: Annotated[
+        str,
+        typer.Option(
+            "--unknown-object-policy",
+            help="Unknown object policy: fail, map, string, or empty-record",
+        ),
+    ] = "fail",
 ) -> None:
     """Generate an Avro envelope schema from GET responses in an OpenAPI document."""
     try:
@@ -63,11 +112,17 @@ def generate(
         options = GenerationOptions(
             namespace=namespace,
             root_name=rootname,
-            include_status_codes=tuple(
-                code.strip() for code in include_status_codes.split(",") if code.strip()
-            ),
+            include_status_codes=_parse_status_codes(include_status_codes),
             content_type=content_type,
             strict=strict,
+            name_strategy=_parse_choice(name_strategy, NAME_STRATEGIES, "--name-strategy"),
+            any_of_policy=_parse_choice(any_of_policy, ANY_OF_POLICIES, "--any-of-policy"),
+            enum_policy=_parse_choice(enum_policy, ENUM_POLICIES, "--enum-policy"),
+            unknown_object_policy=_parse_choice(
+                unknown_object_policy,
+                UNKNOWN_OBJECT_POLICIES,
+                "--unknown-object-policy",
+            ),
         )
         avro_schema = convert_openapi_to_avro(openapi_doc, options)
         rendered = json.dumps(avro_schema, indent=2, ensure_ascii=False) + "\n"
@@ -77,7 +132,7 @@ def generate(
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(rendered, encoding="utf-8")
     except (OpenApiAvroError, json.JSONDecodeError, OSError, ValueError) as exc:
-        typer.echo(str(exc), err=True)
+        typer.echo(f"Failed to generate Avro schema for {input}: {exc}", err=True)
         raise typer.Exit(1) from exc
 
 
