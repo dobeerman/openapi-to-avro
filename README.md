@@ -38,6 +38,22 @@ uv run openapi-get-avro generate \
   --output build/complex-sports-envelope.avsc
 ```
 
+This example demonstrates response selection. It includes one JSON `GET`
+response, one JSON `POST` response, and one non-JSON `GET` response. The
+generated Avro schema includes only the JSON `GET` response:
+
+```bash
+uv run openapi-get-avro generate \
+  --input examples/selection.openapi.json \
+  --namespace com.example.selection \
+  --rootname SelectionEnvelope \
+  --output build/selection-envelope.avsc
+```
+
+The expected output is checked in at `examples/expected-selection.avsc`. Its
+`data` union contains only `ListEventsResponse`; the `POST /events` JSON response
+and `GET /events/{id}/export` `text/csv` response are skipped.
+
 Useful policy and naming options:
 
 ```bash

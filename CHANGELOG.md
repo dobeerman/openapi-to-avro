@@ -1,9 +1,14 @@
 # Changelog
 
-## 0.1.0 - unreleased
+## 0.1.0 - 2026-06-11
 
-- Initial Codex-ready project scaffold.
-- Standardized local development on `uv` with a committed `uv.lock`.
-- Moved development dependencies to `[dependency-groups].dev`.
-- Expanded Ruff configuration to cover formatting, import sorting, and linting.
-- Updated Codex prompts, docs, Makefile targets, and VS Code settings to use `uv run` and Ruff.
+- Added the first working OpenAPI GET-response to Avro envelope converter.
+- Added JSON and YAML OpenAPI loading through the `openapi-get-avro generate` CLI.
+- Included only configured successful `GET` responses with `application/json` content by default.
+- Added local component `$ref` resolution, deterministic Avro naming, name deduplication, and component reuse.
+- Added object, array, primitive, logical type, enum, optional field, and nullable field mappings.
+- Added `allOf` flattening, `oneOf` Avro unions, and policy-controlled `anyOf` unions.
+- Added CLI policy options for naming, `anyOf`, enum handling, unknown objects, content type, and status codes.
+- Added generated-schema validation with `fastavro.parse_schema`.
+- Added examples for minimal conversion, composition, ignored non-GET operations, and skipped non-JSON responses.
+- Standardized local development on `uv`, Ruff, mypy, and pytest through `make check`.

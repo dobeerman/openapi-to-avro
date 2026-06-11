@@ -1,0 +1,79 @@
+{
+  "type": "record",
+  "namespace": "com.example.selection",
+  "name": "SelectionEnvelope",
+  "doc": "Shows that only JSON GET responses are included.",
+  "fields": [
+    {
+      "name": "id",
+      "type": {
+        "type": "string",
+        "logicalType": "uuid"
+      }
+    },
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
+    },
+    {
+      "name": "operation",
+      "type": {
+        "type": "enum",
+        "name": "Operation",
+        "symbols": [
+          "CREATED",
+          "UPDATED",
+          "DELETED"
+        ]
+      }
+    },
+    {
+      "name": "entity_type",
+      "type": {
+        "type": "enum",
+        "name": "EntityType",
+        "symbols": [
+          "EVENT"
+        ]
+      }
+    },
+    {
+      "name": "data",
+      "type": [
+        {
+          "type": "record",
+          "name": "ListEventsResponse",
+          "doc": "GET /events 200 response. Included JSON GET response",
+          "fields": [
+            {
+              "name": "items",
+              "type": {
+                "type": "array",
+                "items": {
+                  "type": "record",
+                  "name": "Event",
+                  "fields": [
+                    {
+                      "name": "id",
+                      "type": {
+                        "type": "string",
+                        "logicalType": "uuid"
+                      }
+                    },
+                    {
+                      "name": "name",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

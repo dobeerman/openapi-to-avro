@@ -25,7 +25,9 @@ Before implementation work, inspect:
 - Do not add production dependencies unless they are already listed in `pyproject.toml`, or you explain why they are needed first.
 - Add development dependencies under `[dependency-groups].dev`, not `[project.optional-dependencies]`.
 - Keep output deterministic: stable path ordering, stable generated names, stable JSON formatting.
+- Preserve configured response-code order exactly; when multiple statuses are selected, include non-numeric statuses like `default` with deterministic PascalCase name suffixes.
 - Treat ambiguous OpenAPI constructs conservatively. In strict mode, fail loudly with actionable errors instead of inventing lossy mappings.
+- When adding Avro unions for optional, nullable, `oneOf`, or allowed `anyOf` schemas, flatten union branches instead of producing nested Avro union arrays.
 - Do not silently rename enum values in strict mode.
 - Preserve OpenAPI descriptions in Avro `doc` where possible.
 - Keep public functions typed.

@@ -1,0 +1,95 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Selection API",
+    "description": "Shows that only JSON GET responses are included."
+  },
+  "paths": {
+    "/events": {
+      "get": {
+        "operationId": "listEvents",
+        "tags": [
+          "Event"
+        ],
+        "responses": {
+          "200": {
+            "description": "Included JSON GET response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Event"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createEvent",
+        "responses": {
+          "200": {
+            "description": "Ignored because this is POST",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{id}/export": {
+      "get": {
+        "operationId": "exportEvent",
+        "tags": [
+          "Event"
+        ],
+        "responses": {
+          "200": {
+            "description": "Ignored because this is not application/json",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Event": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
