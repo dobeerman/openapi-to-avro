@@ -10,7 +10,7 @@ from typing import Annotated, Any, TypeVar
 import typer
 from ruamel.yaml import YAML
 
-from .converter import convert_openapi_to_avro
+from .converter import convert_openapi_to_avro, convert_openapi_to_referenced_avro
 from .exceptions import OpenApiAvroError
 from .models import (
     AnyOfPolicy,
@@ -18,6 +18,7 @@ from .models import (
     FieldNameCase,
     GenerationOptions,
     NameStrategy,
+    ReferencedSchemaSet,
     UnknownObjectPolicy,
 )
 
@@ -91,6 +92,41 @@ def _parse_name_suffixes(value: str) -> tuple[str, ...]:
     return suffixes
 
 
+def _render_json(value: object) -> str:
+    return json.dumps(value, indent=2, ensure_ascii=False) + "\n"
+
+
+def _write_referenced_schemas(
+    schema_set: ReferencedSchemaSet, output_dir: Path, manifest_output: Path | None
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for artifact in schema_set.artifacts:
+        (output_dir / artifact.filename).write_text(
+            _render_json(artifact.schema),
+            encoding="utf-8",
+        )
+
+    manifest_path = manifest_output or output_dir / "manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest = [
+        {
+            "fullname": artifact.fullname,
+            "subject": artifact.subject,
+            "file": artifact.filename,
+            "references": [
+                {
+                    "name": reference.name,
+                    "subject": reference.subject,
+                    "version": reference.version,
+                }
+                for reference in artifact.references
+            ],
+        }
+        for artifact in schema_set.artifacts
+    ]
+    manifest_path.write_text(_render_json(manifest), encoding="utf-8")
+
+
 @app.command()
 def generate(
     input: Annotated[
@@ -149,6 +185,43 @@ def generate(
             help="Comma-separated generated Avro named-type suffixes to remove",
         ),
     ] = "",
+    references_output_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--references-output-dir",
+            help="Also write Confluent Schema Registry referenced schemas to this directory",
+        ),
+    ] = None,
+    references_manifest_output: Annotated[
+        Path | None,
+        typer.Option(
+            "--references-manifest-output",
+            help=(
+                "Manifest path for referenced schemas; defaults to "
+                "<references-output-dir>/manifest.json"
+            ),
+        ),
+    ] = None,
+    reference_subject_template: Annotated[
+        str,
+        typer.Option(
+            "--reference-subject-template",
+            help=(
+                "Subject template for referenced schemas. "
+                "Supports {fullname}, {namespace}, {name}, and {rootname}"
+            ),
+        ),
+    ] = "{fullname}",
+    root_subject: Annotated[
+        str | None,
+        typer.Option(
+            "--root-subject",
+            help=(
+                "Schema Registry subject for the root envelope; for default "
+                "Confluent topic values use <topic>-value"
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Generate an Avro envelope schema from GET responses in an OpenAPI document."""
     try:
@@ -174,8 +247,22 @@ def generate(
             ),
             remove_name_suffixes=_parse_name_suffixes(remove_name_suffixes),
         )
-        avro_schema = convert_openapi_to_avro(openapi_doc, options)
-        rendered = json.dumps(avro_schema, indent=2, ensure_ascii=False) + "\n"
+        if references_output_dir is None:
+            avro_schema = convert_openapi_to_avro(openapi_doc, options)
+        else:
+            schema_set = convert_openapi_to_referenced_avro(
+                openapi_doc,
+                options,
+                subject_template=reference_subject_template,
+                root_subject=root_subject,
+            )
+            avro_schema = schema_set.bundled_schema
+            _write_referenced_schemas(
+                schema_set,
+                references_output_dir,
+                references_manifest_output,
+            )
+        rendered = _render_json(avro_schema)
         if output is None:
             typer.echo(rendered, nl=False)
         else:

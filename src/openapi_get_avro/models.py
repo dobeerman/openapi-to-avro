@@ -31,6 +31,34 @@ class GenerationOptions:
 
 
 @dataclass(frozen=True)
+class SchemaRegistryReference:
+    """Confluent Schema Registry reference metadata for one dependency."""
+
+    name: str
+    subject: str
+    version: str = "latest"
+
+
+@dataclass(frozen=True)
+class ReferencedSchemaArtifact:
+    """A standalone Avro schema and its registry metadata."""
+
+    fullname: str
+    subject: str
+    filename: str
+    schema: dict[str, object]
+    references: tuple[SchemaRegistryReference, ...] = ()
+
+
+@dataclass(frozen=True)
+class ReferencedSchemaSet:
+    """Bundled schema plus deterministic referenced-schema artifacts."""
+
+    bundled_schema: dict[str, object]
+    artifacts: tuple[ReferencedSchemaArtifact, ...]
+
+
+@dataclass(frozen=True)
 class SelectedOperation:
     """A GET operation selected for Avro generation."""
 

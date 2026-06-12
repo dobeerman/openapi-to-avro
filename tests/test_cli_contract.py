@@ -59,6 +59,10 @@ def test_cli_help_exposes_generation_policy_options() -> None:
     assert "--unknown-object-policy" in help_output
     assert "--remove-name-suffixes" in help_output
     assert "--field-name-case" in help_output
+    assert "--references-output-dir" in help_output
+    assert "--references-manifest-output" in help_output
+    assert "--reference-subject-template" in help_output
+    assert "--root-subject" in help_output
 
 
 def test_cli_include_status_codes_preserves_requested_order(tmp_path: Path) -> None:
