@@ -18,6 +18,7 @@ Optional options:
 --content-type            Response content type. Default: application/json.
 --strict / --lenient      Strict mode fails on ambiguous constructs. Default: strict.
 --name-strategy           operationId or path. Default: operationId.
+--field-name-case         preserve, snake_case, camelCase, or PascalCase. Default: preserve.
 --any-of-policy           fail or union. Default: fail.
 --enum-policy             fail, string, or sanitize. Default: fail.
 --unknown-object-policy   fail, map, string, or empty-record. Default: fail.
@@ -142,6 +143,11 @@ Rules:
 When `--remove-name-suffixes` is configured, remove exact trailing suffix matches
 from generated Avro named types after converting the source text to Avro name
 shape. Do not mutate field/property names.
+
+When `--field-name-case` is configured, transform OpenAPI response payload field
+names to the selected case after reading requiredness from the original OpenAPI
+property names. Do not mutate generated record names or enum names. The fixed
+root envelope fields remain unchanged.
 
 ## Validation
 

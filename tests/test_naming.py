@@ -202,6 +202,149 @@ def test_remove_name_suffixes_renames_component_refs_and_response_records() -> N
     assert fields["roleDto"]["type"]["name"] == "GetAttributeResponseRole"
 
 
+def test_field_name_case_snake_case_transforms_payload_fields_only() -> None:
+    schema = convert_openapi_to_avro(
+        _base_doc(
+            {
+                "/lineups": {
+                    "get": {
+                        "operationId": "getLineupDto",
+                        "tags": ["Lineup"],
+                        "responses": _json_response(
+                            {
+                                "type": "object",
+                                "required": ["lineupVersion", "status"],
+                                "properties": {
+                                    "lineupVersion": {"type": "integer"},
+                                    "status": {
+                                        "type": "string",
+                                        "enum": ["Draft", "Published"],
+                                    },
+                                    "teamMember": {
+                                        "type": "object",
+                                        "required": ["displayName"],
+                                        "properties": {
+                                            "displayName": {"type": "string"},
+                                        },
+                                    },
+                                },
+                            }
+                        ),
+                    }
+                }
+            }
+        ),
+        GenerationOptions(
+            namespace="com.example.naming",
+            root_name="NamingEnvelope",
+            field_name_case="snake_case",
+        ),
+    )
+
+    root_fields = schema["fields"]
+    assert isinstance(root_fields, list)
+    assert [field["name"] for field in root_fields if isinstance(field, dict)] == [
+        "id",
+        "timestamp",
+        "operation",
+        "entity_type",
+        "data",
+    ]
+
+    branch = _data_branches(schema)[0]
+    assert isinstance(branch, dict)
+    assert branch["name"] == "GetLineupDtoResponse"
+    fields = _record_fields(branch)
+    assert list(fields) == ["lineup_version", "status", "team_member"]
+    assert fields["status"]["type"] == {
+        "type": "enum",
+        "name": "GetLineupDtoResponseStatusEnum",
+        "symbols": ["Draft", "Published"],
+    }
+    team_member = fields["team_member"]["type"]
+    assert isinstance(team_member, list)
+    team_member_record = team_member[1]
+    assert isinstance(team_member_record, dict)
+    assert team_member_record["name"] == "GetLineupDtoResponseTeamMember"
+    assert list(_record_fields(team_member_record)) == ["display_name"]
+
+
+def test_field_name_case_supports_camel_and_pascal_case() -> None:
+    openapi_doc = _base_doc(
+        {
+            "/lineups": {
+                "get": {
+                    "operationId": "getLineup",
+                    "tags": ["Lineup"],
+                    "responses": _json_response(
+                        {
+                            "type": "object",
+                            "properties": {
+                                "lineup_version": {"type": "integer"},
+                                "home-team-id": {"type": "string"},
+                            },
+                        }
+                    ),
+                }
+            }
+        }
+    )
+
+    camel = convert_openapi_to_avro(
+        openapi_doc,
+        GenerationOptions(
+            namespace="com.example.naming",
+            root_name="NamingEnvelope",
+            field_name_case="camelCase",
+        ),
+    )
+    pascal = convert_openapi_to_avro(
+        openapi_doc,
+        GenerationOptions(
+            namespace="com.example.naming",
+            root_name="NamingEnvelope",
+            field_name_case="PascalCase",
+        ),
+    )
+
+    camel_branch = _data_branches(camel)[0]
+    pascal_branch = _data_branches(pascal)[0]
+    assert isinstance(camel_branch, dict)
+    assert isinstance(pascal_branch, dict)
+    assert list(_record_fields(camel_branch)) == ["lineupVersion", "homeTeamId"]
+    assert list(_record_fields(pascal_branch)) == ["LineupVersion", "HomeTeamId"]
+
+
+def test_field_name_case_fails_when_transform_creates_duplicate_field_names() -> None:
+    with pytest.raises(AvroNameError, match="duplicate Avro field"):
+        convert_openapi_to_avro(
+            _base_doc(
+                {
+                    "/lineups": {
+                        "get": {
+                            "operationId": "getLineup",
+                            "tags": ["Lineup"],
+                            "responses": _json_response(
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "lineupVersion": {"type": "integer"},
+                                        "lineup_version": {"type": "integer"},
+                                    },
+                                }
+                            ),
+                        }
+                    }
+                }
+            ),
+            GenerationOptions(
+                namespace="com.example.naming",
+                root_name="NamingEnvelope",
+                field_name_case="snake_case",
+            ),
+        )
+
+
 def test_remove_name_suffixes_resolves_collisions_deterministically() -> None:
     schema = convert_openapi_to_avro(
         _base_doc(

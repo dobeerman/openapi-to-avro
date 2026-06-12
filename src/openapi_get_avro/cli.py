@@ -12,7 +12,14 @@ from ruamel.yaml import YAML
 
 from .converter import convert_openapi_to_avro
 from .exceptions import OpenApiAvroError
-from .models import AnyOfPolicy, EnumPolicy, GenerationOptions, NameStrategy, UnknownObjectPolicy
+from .models import (
+    AnyOfPolicy,
+    EnumPolicy,
+    FieldNameCase,
+    GenerationOptions,
+    NameStrategy,
+    UnknownObjectPolicy,
+)
 
 app = typer.Typer(
     no_args_is_help=True, help="Convert OpenAPI GET responses to Avro envelope schema"
@@ -22,6 +29,12 @@ TChoice = TypeVar("TChoice", bound=str)
 
 AVRO_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 NAME_STRATEGIES: tuple[NameStrategy, ...] = ("operationId", "path")
+FIELD_NAME_CASES: tuple[FieldNameCase, ...] = (
+    "preserve",
+    "snake_case",
+    "camelCase",
+    "PascalCase",
+)
 ANY_OF_POLICIES: tuple[AnyOfPolicy, ...] = ("fail", "union")
 ENUM_POLICIES: tuple[EnumPolicy, ...] = ("fail", "string", "sanitize")
 UNKNOWN_OBJECT_POLICIES: tuple[UnknownObjectPolicy, ...] = (
@@ -107,6 +120,13 @@ def generate(
             help="Response naming strategy: operationId or path",
         ),
     ] = "operationId",
+    field_name_case: Annotated[
+        str,
+        typer.Option(
+            "--field-name-case",
+            help="Payload field name case: preserve, snake_case, camelCase, or PascalCase",
+        ),
+    ] = "preserve",
     any_of_policy: Annotated[
         str,
         typer.Option("--any-of-policy", help="anyOf handling policy: fail or union"),
@@ -140,6 +160,11 @@ def generate(
             content_type=content_type,
             strict=strict,
             name_strategy=_parse_choice(name_strategy, NAME_STRATEGIES, "--name-strategy"),
+            field_name_case=_parse_choice(
+                field_name_case,
+                FIELD_NAME_CASES,
+                "--field-name-case",
+            ),
             any_of_policy=_parse_choice(any_of_policy, ANY_OF_POLICIES, "--any-of-policy"),
             enum_policy=_parse_choice(enum_policy, ENUM_POLICIES, "--enum-policy"),
             unknown_object_policy=_parse_choice(

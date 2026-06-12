@@ -58,6 +58,7 @@ def test_cli_help_exposes_generation_policy_options() -> None:
     assert "--enum-policy" in help_output
     assert "--unknown-object-policy" in help_output
     assert "--remove-name-suffixes" in help_output
+    assert "--field-name-case" in help_output
 
 
 def test_cli_include_status_codes_preserves_requested_order(tmp_path: Path) -> None:
@@ -196,6 +197,90 @@ def test_cli_name_strategy_path_overrides_operation_id(tmp_path: Path) -> None:
     actual = json.loads(output_path.read_text(encoding="utf-8"))
     data_field = actual["fields"][-1]
     assert data_field["type"][0]["name"] == "GetMatchesByMatchIdLineupsResponse"
+
+
+def test_cli_field_name_case_transforms_payload_field_names(tmp_path: Path) -> None:
+    runner = CliRunner()
+    input_path = tmp_path / "field-case.openapi.json"
+    output_path = tmp_path / "schema.avsc"
+    input_path.write_text(
+        json.dumps(
+            {
+                "openapi": "3.0.3",
+                "info": {"title": "Field Case API"},
+                "paths": {
+                    "/lineups": {
+                        "get": {
+                            "operationId": "getLineup",
+                            "tags": ["Lineup"],
+                            "responses": {
+                                "200": {
+                                    "content": {
+                                        "application/json": {
+                                            "schema": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "lineupVersion": {"type": "integer"},
+                                                },
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "generate",
+            "--input",
+            str(input_path),
+            "--namespace",
+            "com.example.fieldcase",
+            "--rootname",
+            "FieldCaseEnvelope",
+            "--field-name-case",
+            "snake_case",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    actual = json.loads(output_path.read_text(encoding="utf-8"))
+    data_field = actual["fields"][-1]
+    branch = data_field["type"][0]
+    assert branch["fields"][0]["name"] == "lineup_version"
+
+
+def test_cli_rejects_invalid_field_name_case() -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        [
+            "generate",
+            "--input",
+            str(FIXTURES / "minimal.openapi.json"),
+            "--namespace",
+            "com.example.sports",
+            "--rootname",
+            "SportsEnvelope",
+            "--field-name-case",
+            "kebab-case",
+        ],
+    )
+
+    assert result.exit_code != 0
+    error_output = _strip_ansi(result.output)
+    assert "--field-name-case must be one of: preserve, snake_case" in error_output
+    assert "camelCase, PascalCase" in error_output
 
 
 def test_cli_rejects_empty_remove_name_suffix() -> None:

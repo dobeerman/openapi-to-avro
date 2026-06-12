@@ -330,27 +330,17 @@ class _Converter:
         required_names = set(required)
 
         fields: list[JsonDict] = []
+        avro_field_names: set[str] = set()
         for field_name, field_schema in properties.items():
-            if not isinstance(field_name, str):
-                raise InvalidOpenApiError(f"Object schema {name_hint} has a non-string field name")
-            self._require_avro_name(field_name, f"field {name_hint}.{field_name}")
-            if not isinstance(field_schema, dict):
-                raise UnsupportedSchemaError(
-                    f"Field schema {name_hint}.{field_name} must be an object"
+            fields.append(
+                self._property_to_field(
+                    field_name,
+                    field_schema,
+                    name_hint=name_hint,
+                    required_names=required_names,
+                    avro_field_names=avro_field_names,
                 )
-
-            avro_type = self._schema_to_avro(field_schema, f"{name_hint}{self._pascal(field_name)}")
-            nullable = field_name not in required_names
-            if nullable and not self._is_null_union(avro_type):
-                avro_type = self._prepend_null(avro_type)
-
-            field: JsonDict = {"name": field_name, "type": avro_type}
-            if self._is_null_union(avro_type):
-                field["default"] = None
-            description = field_schema.get("description")
-            if isinstance(description, str):
-                field["doc"] = description
-            fields.append(field)
+            )
 
         record_name = self._record_name(name_hint, name_identity, schema)
         record: JsonDict = {"type": "record", "name": record_name}
@@ -359,6 +349,40 @@ class _Converter:
             record["doc"] = doc
         record["fields"] = fields
         return record
+
+    def _property_to_field(
+        self,
+        field_name: Any,
+        field_schema: Any,
+        *,
+        name_hint: str,
+        required_names: set[str],
+        avro_field_names: set[str],
+    ) -> JsonDict:
+        if not isinstance(field_name, str):
+            raise InvalidOpenApiError(f"Object schema {name_hint} has a non-string field name")
+        avro_field_name = self._field_name(field_name, name_hint)
+        if avro_field_name in avro_field_names:
+            raise AvroNameError(
+                f"Field name transform produced duplicate Avro field "
+                f"{name_hint}.{avro_field_name!r}"
+            )
+        avro_field_names.add(avro_field_name)
+        if not isinstance(field_schema, dict):
+            raise UnsupportedSchemaError(f"Field schema {name_hint}.{field_name} must be an object")
+
+        avro_type = self._schema_to_avro(field_schema, f"{name_hint}{self._pascal(field_name)}")
+        nullable = field_name not in required_names
+        if nullable and not self._is_null_union(avro_type):
+            avro_type = self._prepend_null(avro_type)
+
+        field: JsonDict = {"name": avro_field_name, "type": avro_type}
+        if self._is_null_union(avro_type):
+            field["default"] = None
+        description = field_schema.get("description")
+        if isinstance(description, str):
+            field["doc"] = description
+        return field
 
     def _record_name(
         self, name_hint: str, name_identity: NameIdentity | None, schema: JsonDict
@@ -681,6 +705,17 @@ class _Converter:
                 parts.append(self._pascal(segment))
         return "".join(parts)
 
+    def _field_name(self, text: str, parent_name: str) -> str:
+        if self.options.field_name_case == "preserve":
+            return self._require_avro_name(text, f"field {parent_name}.{text}")
+        if self.options.field_name_case == "snake_case":
+            name = self._snake(text)
+        elif self.options.field_name_case == "camelCase":
+            name = self._camel(text)
+        else:
+            name = self._pascal(text)
+        return self._require_avro_name(name, f"field {parent_name}.{text}")
+
     def _enum_symbol_from_text(self, text: str) -> str:
         symbol = "_".join(self._words(text)).upper()
         return self._require_enum_symbol(symbol, f"entity type derived from {text!r}")
@@ -692,6 +727,19 @@ class _Converter:
         name = "".join(word[:1].upper() + word[1:] for word in words)
         if name[0].isdigit():
             name = f"N{name}"
+        return name
+
+    def _camel(self, text: str) -> str:
+        pascal = self._pascal(text)
+        return f"{pascal[:1].lower()}{pascal[1:]}"
+
+    def _snake(self, text: str) -> str:
+        words = self._words(text)
+        if not words:
+            raise AvroNameError(f"Cannot derive an Avro field name from {text!r}")
+        name = "_".join(words)
+        if name[0].isdigit():
+            name = f"n_{name}"
         return name
 
     def _named_type_base(self, text: str, context: str) -> str:
