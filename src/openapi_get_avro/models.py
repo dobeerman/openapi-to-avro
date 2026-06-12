@@ -28,6 +28,7 @@ class GenerationOptions:
     enum_policy: EnumPolicy = "fail"
     timestamp_logical_type: Literal["timestamp-millis", "string"] = "timestamp-millis"
     remove_name_suffixes: tuple[str, ...] = ()
+    include_response_records: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

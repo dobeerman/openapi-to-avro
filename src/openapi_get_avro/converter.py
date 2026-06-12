@@ -55,7 +55,7 @@ class _Converter:
         self.refs_in_progress: set[str] = set()
 
     def convert(self) -> JsonDict:
-        selected = self._select_operations()
+        selected = self._filter_operations(self._select_operations())
         data_types: list[Any] = []
         entity_symbols: list[str] = []
 
@@ -119,6 +119,59 @@ class _Converter:
         }
         self._validate_avro(schema)
         return schema
+
+    def _filter_operations(self, operations: list[SelectedOperation]) -> list[SelectedOperation]:
+        if not self.options.include_response_records:
+            return operations
+
+        matched_selectors: set[str] = set()
+        filtered: list[SelectedOperation] = []
+        for operation in operations:
+            response_name = self._response_record_preferred_name(operation)
+            response_selectors = self._response_record_selectors(operation, response_name)
+            selectors = [
+                selector
+                for selector in self.options.include_response_records
+                if selector in response_selectors
+            ]
+            if not selectors:
+                continue
+            matched_selectors.update(selectors)
+            filtered.append(operation)
+
+        unmatched = [
+            selector
+            for selector in self.options.include_response_records
+            if selector not in matched_selectors
+        ]
+        if unmatched:
+            formatted = ", ".join(repr(selector) for selector in unmatched)
+            raise InvalidOpenApiError(
+                f"--include-response-records did not match generated response records: {formatted}"
+            )
+        return filtered
+
+    def _response_record_selectors(
+        self, operation: SelectedOperation, response_name: str
+    ) -> set[str]:
+        selectors = {response_name}
+        if not response_name.endswith("Response"):
+            return selectors
+
+        stem = response_name.removesuffix("Response")
+        selectors.add(stem)
+
+        status_suffix = self._status_suffix(operation.status_code)
+        if stem.endswith(status_suffix):
+            stem = stem[: -len(status_suffix)]
+            selectors.add(stem)
+
+        if stem.startswith("Get"):
+            stem = stem.removeprefix("Get")
+            selectors.add(stem)
+        if stem.startswith("Api"):
+            selectors.add(stem.removeprefix("Api"))
+        return selectors
 
     def _components(self) -> JsonDict:
         components = self.openapi_doc.get("components", {})
@@ -693,6 +746,12 @@ class _Converter:
         return None
 
     def _response_record_name(self, operation: SelectedOperation) -> str:
+        return self._allocate_name(
+            self._response_record_preferred_name(operation),
+            self._response_identity(operation),
+        )
+
+    def _response_record_preferred_name(self, operation: SelectedOperation) -> str:
         if self.options.name_strategy == "operationId" and operation.operation_id:
             base = self._named_type_base(operation.operation_id, "response record name")
         else:
@@ -701,7 +760,7 @@ class _Converter:
             )
         if len(self.options.include_status_codes) > 1:
             base = f"{base}{self._status_suffix(operation.status_code)}"
-        return self._allocate_name(f"{base}Response", self._response_identity(operation))
+        return f"{base}Response"
 
     def _response_identity(self, operation: SelectedOperation) -> NameIdentity:
         return ("response", operation.path, operation.method, operation.status_code)
