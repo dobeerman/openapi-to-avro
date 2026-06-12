@@ -35,6 +35,16 @@ GetMatchResponse.venue -> GetMatchResponseVenue
 GetMatchResponse.participants[] -> GetMatchResponseParticipantsItem
 ```
 
+## Field name case
+
+By default, OpenAPI response payload field names are preserved. With
+`--field-name-case`, payload fields can be emitted as `snake_case`, `camelCase`,
+or `PascalCase`. This does not change record names, enum names, enum symbols, or
+the fixed root envelope fields.
+
+If two source properties transform to the same Avro field name, generation fails
+instead of silently dropping or merging a field.
+
 ## Deduplication
 
 If two generated names collide but refer to different schemas, append deterministic suffixes:

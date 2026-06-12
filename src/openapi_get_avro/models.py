@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 NameStrategy = Literal["operationId", "path"]
+FieldNameCase = Literal["preserve", "snake_case", "camelCase", "PascalCase"]
 UnknownObjectPolicy = Literal["map", "string", "empty-record", "fail"]
 AnyOfPolicy = Literal["fail", "union"]
 EnumPolicy = Literal["fail", "string", "sanitize"]
@@ -21,6 +22,7 @@ class GenerationOptions:
     content_type: str = "application/json"
     strict: bool = True
     name_strategy: NameStrategy = "operationId"
+    field_name_case: FieldNameCase = "preserve"
     unknown_object_policy: UnknownObjectPolicy = "fail"
     any_of_policy: AnyOfPolicy = "fail"
     enum_policy: EnumPolicy = "fail"

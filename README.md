@@ -64,6 +64,7 @@ uv run openapi-get-avro generate \
   --name-strategy operationId \
   --include-status-codes 200,206,default \
   --content-type application/json \
+  --field-name-case snake_case \
   --any-of-policy fail \
   --enum-policy fail \
   --unknown-object-policy fail \
@@ -74,6 +75,7 @@ uv run openapi-get-avro generate \
 Accepted CLI values:
 
 - `--name-strategy`: `operationId` or `path`
+- `--field-name-case`: `preserve`, `snake_case`, `camelCase`, or `PascalCase`; transforms response payload field names only
 - `--any-of-policy`: `fail` or `union`
 - `--enum-policy`: `fail`, `string`, or `sanitize`
 - `--unknown-object-policy`: `fail`, `map`, `string`, or `empty-record`
