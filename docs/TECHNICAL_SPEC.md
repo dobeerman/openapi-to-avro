@@ -15,6 +15,8 @@ Optional options:
 ```text
 --output                  Output path. If omitted, write to stdout.
 --include-status-codes    Comma-separated response codes. Default: 200.
+--include-response-records
+                          Comma-separated generated response record selectors. Default: include all.
 --content-type            Response content type. Default: application/json.
 --strict / --lenient      Strict mode fails on ambiguous constructs. Default: strict.
 --name-strategy           operationId or path. Default: operationId.
@@ -39,8 +41,16 @@ Optional options:
 3. For each selected operation, inspect `responses`.
 4. Include configured status codes only. Default is `200`.
 5. For each included status code, include configured response content type only. Default is `application/json`.
-6. If no matching response schema exists for a GET operation, skip it with an internal warning or fail in strict mode. MVP may skip.
-7. Ignore non-GET operations completely.
+6. If `--include-response-records` is configured, include only responses whose
+   generated response record selector exactly matches a configured selector.
+   Selectors include the full generated response record name and the generated
+   name without `Response`, status suffix, leading `Get`, and leading `Api`.
+   For example, `Venues` matches `GetApiVenues200Response`, while
+   `VenuesAttributes` must be specified to match `GetApiVenuesAttributes200Response`.
+7. If a configured response record selector matches no selected response, fail
+   with a clear error.
+8. If no matching response schema exists for a GET operation, skip it with an internal warning or fail in strict mode. MVP may skip.
+9. Ignore non-GET operations completely.
 
 ## Root envelope
 

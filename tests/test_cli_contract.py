@@ -57,6 +57,7 @@ def test_cli_help_exposes_generation_policy_options() -> None:
     assert "--any-of-policy" in help_output
     assert "--enum-policy" in help_output
     assert "--unknown-object-policy" in help_output
+    assert "--include-response-records" in help_output
     assert "--remove-name-suffixes" in help_output
     assert "--field-name-case" in help_output
     assert "--references-output-dir" in help_output

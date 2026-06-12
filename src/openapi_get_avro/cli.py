@@ -92,6 +92,21 @@ def _parse_name_suffixes(value: str) -> tuple[str, ...]:
     return suffixes
 
 
+def _parse_response_record_selectors(value: str) -> tuple[str, ...]:
+    if not value:
+        return ()
+    selectors = tuple(selector.strip() for selector in value.split(","))
+    if any(not selector for selector in selectors):
+        raise typer.BadParameter("--include-response-records cannot contain empty selectors")
+    invalid_selectors = [selector for selector in selectors if not AVRO_NAME_RE.fullmatch(selector)]
+    if invalid_selectors:
+        invalid = ", ".join(repr(selector) for selector in invalid_selectors)
+        raise typer.BadParameter(
+            f"--include-response-records values must be valid Avro name fragments: {invalid}"
+        )
+    return selectors
+
+
 def _render_json(value: object) -> str:
     return json.dumps(value, indent=2, ensure_ascii=False) + "\n"
 
@@ -143,6 +158,16 @@ def generate(
     include_status_codes: Annotated[
         str, typer.Option("--include-status-codes", help="Comma-separated response codes")
     ] = "200",
+    include_response_records: Annotated[
+        str,
+        typer.Option(
+            "--include-response-records",
+            help=(
+                "Comma-separated generated response record selectors, for example "
+                "Venues,MatchParticipants"
+            ),
+        ),
+    ] = "",
     content_type: Annotated[
         str, typer.Option("--content-type", help="Response content type to include")
     ] = "application/json",
@@ -246,6 +271,7 @@ def generate(
                 "--unknown-object-policy",
             ),
             remove_name_suffixes=_parse_name_suffixes(remove_name_suffixes),
+            include_response_records=_parse_response_record_selectors(include_response_records),
         )
         if references_output_dir is None:
             avro_schema = convert_openapi_to_avro(openapi_doc, options)

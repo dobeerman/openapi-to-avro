@@ -81,6 +81,7 @@ uv run openapi-get-avro generate \
   --rootname SportsEnvelope \
   --name-strategy operationId \
   --include-status-codes 200,206,default \
+  --include-response-records Venues,MatchParticipants \
   --content-type application/json \
   --field-name-case snake_case \
   --any-of-policy fail \
@@ -98,6 +99,7 @@ Accepted CLI values:
 - `--enum-policy`: `fail`, `string`, or `sanitize`
 - `--unknown-object-policy`: `fail`, `map`, `string`, or `empty-record`
 - `--include-status-codes`: comma-separated response codes, evaluated in the order provided
+- `--include-response-records`: comma-separated exact response selectors; for example `Venues` matches `GetApiVenues200Response`, and `VenuesAttributes` matches `GetApiVenuesAttributes200Response`
 - `--remove-name-suffixes`: comma-separated, case-sensitive suffixes removed from generated Avro named types, for example `Dto`
 - `--references-output-dir`: writes Confluent Schema Registry referenced schemas in addition to the bundled output
 - `--references-manifest-output`: overrides the referenced-schema manifest path
