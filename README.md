@@ -54,6 +54,24 @@ The expected output is checked in at `examples/expected-selection.avsc`. Its
 `data` union contains only `ListEventsResponse`; the `POST /events` JSON response
 and `GET /events/{id}/export` `text/csv` response are skipped.
 
+To also emit Confluent Schema Registry referenced schemas while preserving the
+bundled `.avsc` output:
+
+```bash
+uv run openapi-get-avro generate \
+  --input examples/minimal.openapi.json \
+  --namespace com.example.sports \
+  --rootname SportsEnvelope \
+  --output build/sports-envelope.avsc \
+  --references-output-dir build/schema-references \
+  --root-subject sts.abc.def.avro-value \
+  --reference-subject-template "{fullname}"
+```
+
+The references directory receives one `.avsc` file per generated Avro named
+type plus `manifest.json`. The manifest is ordered for registration: dependency
+subjects first, then schemas that reference them, with the root envelope last.
+
 Useful policy and naming options:
 
 ```bash
@@ -81,6 +99,10 @@ Accepted CLI values:
 - `--unknown-object-policy`: `fail`, `map`, `string`, or `empty-record`
 - `--include-status-codes`: comma-separated response codes, evaluated in the order provided
 - `--remove-name-suffixes`: comma-separated, case-sensitive suffixes removed from generated Avro named types, for example `Dto`
+- `--references-output-dir`: writes Confluent Schema Registry referenced schemas in addition to the bundled output
+- `--references-manifest-output`: overrides the referenced-schema manifest path
+- `--reference-subject-template`: formats registry subjects with `{fullname}`, `{namespace}`, `{name}`, and `{rootname}`
+- `--root-subject`: overrides the root envelope subject; for Confluent's default topic value subject, use `<topic>-value`
 
 The implemented strict behavior is the default: invalid enum values and ambiguous
 free-form objects fail. `--any-of-policy union` is implemented when every branch

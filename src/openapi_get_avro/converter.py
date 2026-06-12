@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections import OrderedDict
 from collections.abc import Hashable
 from typing import Any
 
@@ -14,7 +15,13 @@ from .exceptions import (
     OpenApiAvroError,
     UnsupportedSchemaError,
 )
-from .models import GenerationOptions, SelectedOperation
+from .models import (
+    GenerationOptions,
+    ReferencedSchemaArtifact,
+    ReferencedSchemaSet,
+    SchemaRegistryReference,
+    SelectedOperation,
+)
 
 AVRO_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 LOCAL_COMPONENT_REF_PREFIX = "#/components/schemas/"
@@ -22,6 +29,16 @@ HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "tra
 
 JsonDict = dict[str, Any]
 NameIdentity = tuple[Hashable, ...]
+PRIMITIVE_AVRO_TYPES = {
+    "null",
+    "boolean",
+    "int",
+    "long",
+    "float",
+    "double",
+    "bytes",
+    "string",
+}
 
 
 class _Converter:
@@ -861,3 +878,200 @@ def convert_openapi_to_avro(
         OpenApiAvroError: If the document cannot be converted under the selected policies.
     """
     return _Converter(openapi_doc, options).convert()
+
+
+class _ReferencedSchemaRenderer:
+    def __init__(
+        self,
+        bundled_schema: JsonDict,
+        *,
+        namespace: str,
+        root_name: str,
+        subject_template: str,
+        root_subject: str | None = None,
+    ) -> None:
+        self.bundled_schema = bundled_schema
+        self.namespace = namespace
+        self.root_name = root_name
+        self.subject_template = subject_template
+        self.root_subject = root_subject
+        self.definitions: OrderedDict[str, JsonDict] = OrderedDict()
+        self.name_to_fullname: dict[str, str] = {}
+
+    def render(self) -> ReferencedSchemaSet:
+        self._collect_named_definitions(self.bundled_schema, default_namespace=self.namespace)
+        dependencies: dict[str, tuple[str, ...]] = {}
+        schemas: dict[str, JsonDict] = {}
+        for fullname, schema in self.definitions.items():
+            collected_dependencies: list[str] = []
+            schemas[fullname] = self._standalone_schema(schema, fullname, collected_dependencies)
+            dependencies[fullname] = tuple(dict.fromkeys(collected_dependencies))
+
+        ordered_fullnames = self._registration_order(dependencies)
+        root_fullname = f"{self.namespace}.{self.root_name}"
+        artifacts = tuple(
+            ReferencedSchemaArtifact(
+                fullname=fullname,
+                subject=self._subject(fullname, root_fullname=root_fullname),
+                filename=f"{fullname}.avsc",
+                schema=schemas[fullname],
+                references=tuple(
+                    SchemaRegistryReference(
+                        name=dependency,
+                        subject=self._subject(dependency, root_fullname=root_fullname),
+                    )
+                    for dependency in dependencies[fullname]
+                ),
+            )
+            for fullname in ordered_fullnames
+        )
+        return ReferencedSchemaSet(bundled_schema=self.bundled_schema, artifacts=artifacts)
+
+    def _collect_named_definitions(self, value: Any, *, default_namespace: str) -> None:
+        if isinstance(value, dict):
+            schema_type = value.get("type")
+            nested_namespace = default_namespace
+            if (
+                isinstance(schema_type, str)
+                and schema_type in {"record", "enum", "fixed"}
+                and isinstance(value.get("name"), str)
+            ):
+                fullname = self._fullname(value, default_namespace)
+                self.definitions.setdefault(fullname, value)
+                simple_name = fullname.rsplit(".", 1)[-1]
+                self.name_to_fullname[simple_name] = fullname
+                self.name_to_fullname[fullname] = fullname
+                nested_namespace = fullname.rsplit(".", 1)[0]
+            for child in value.values():
+                self._collect_named_definitions(child, default_namespace=nested_namespace)
+        elif isinstance(value, list):
+            for child in value:
+                self._collect_named_definitions(child, default_namespace=default_namespace)
+
+    def _standalone_schema(
+        self, schema: JsonDict, owner_fullname: str, dependencies: list[str]
+    ) -> JsonDict:
+        rendered: JsonDict = {}
+        for key, value in schema.items():
+            if key == "namespace":
+                continue
+            if key == "name":
+                rendered[key] = owner_fullname.rsplit(".", 1)[-1]
+                continue
+            rendered[key] = self._render_type(value, owner_fullname, dependencies)
+        rendered["namespace"] = owner_fullname.rsplit(".", 1)[0]
+        return self._order_named_schema(rendered)
+
+    def _render_type(self, value: Any, owner_fullname: str, dependencies: list[str]) -> Any:
+        if isinstance(value, dict):
+            return self._render_dict_type(value, owner_fullname, dependencies)
+        if isinstance(value, list):
+            return [self._render_type(child, owner_fullname, dependencies) for child in value]
+        if isinstance(value, str) and value not in PRIMITIVE_AVRO_TYPES:
+            return self._render_string_reference(value, owner_fullname, dependencies)
+        return value
+
+    def _render_dict_type(
+        self, value: JsonDict, owner_fullname: str, dependencies: list[str]
+    ) -> Any:
+        schema_type = value.get("type")
+        if (
+            isinstance(schema_type, str)
+            and schema_type in {"record", "enum", "fixed"}
+            and isinstance(value.get("name"), str)
+        ):
+            fullname = self._fullname(value, owner_fullname.rsplit(".", 1)[0])
+            if fullname != owner_fullname:
+                dependencies.append(fullname)
+            return fullname
+        return {
+            key: self._render_type(child, owner_fullname, dependencies)
+            for key, child in value.items()
+        }
+
+    def _render_string_reference(
+        self, value: str, owner_fullname: str, dependencies: list[str]
+    ) -> str:
+        fullname = self.name_to_fullname.get(value)
+        if fullname is None:
+            return value
+        if fullname != owner_fullname:
+            dependencies.append(fullname)
+        return fullname
+
+    def _order_named_schema(self, schema: JsonDict) -> JsonDict:
+        ordered: JsonDict = {}
+        for key in ("type", "namespace", "name", "doc", "symbols", "fields", "size"):
+            if key in schema:
+                ordered[key] = schema[key]
+        for key, value in schema.items():
+            if key not in ordered:
+                ordered[key] = value
+        return ordered
+
+    def _registration_order(self, dependencies: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
+        ordered: list[str] = []
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit(fullname: str) -> None:
+            if fullname in visited:
+                return
+            if fullname in visiting:
+                return
+            visiting.add(fullname)
+            for dependency in dependencies[fullname]:
+                if dependency in dependencies:
+                    visit(dependency)
+            visiting.remove(fullname)
+            visited.add(fullname)
+            ordered.append(fullname)
+
+        for fullname in self.definitions:
+            visit(fullname)
+        return tuple(ordered)
+
+    def _fullname(self, schema: JsonDict, default_namespace: str) -> str:
+        name = schema.get("name")
+        if not isinstance(name, str):
+            raise OpenApiAvroError("Named Avro schema is missing a string name")
+        if "." in name:
+            return name
+        namespace = schema.get("namespace")
+        if isinstance(namespace, str) and namespace:
+            return f"{namespace}.{name}"
+        return f"{default_namespace}.{name}"
+
+    def _subject(self, fullname: str, *, root_fullname: str) -> str:
+        if fullname == root_fullname and self.root_subject is not None:
+            return self.root_subject
+        namespace, name = fullname.rsplit(".", 1)
+        try:
+            return self.subject_template.format(
+                fullname=fullname,
+                namespace=namespace,
+                name=name,
+                rootname=self.root_name,
+            )
+        except KeyError as exc:
+            raise OpenApiAvroError(
+                f"Unknown placeholder {{{exc.args[0]}}} in reference subject template"
+            ) from exc
+
+
+def convert_openapi_to_referenced_avro(
+    openapi_doc: dict[str, Any],
+    options: GenerationOptions,
+    *,
+    subject_template: str = "{fullname}",
+    root_subject: str | None = None,
+) -> ReferencedSchemaSet:
+    """Convert OpenAPI to bundled Avro plus Confluent-friendly schema references."""
+    bundled_schema = _Converter(openapi_doc, options).convert()
+    return _ReferencedSchemaRenderer(
+        bundled_schema,
+        namespace=options.namespace,
+        root_name=options.root_name,
+        subject_template=subject_template,
+        root_subject=root_subject,
+    ).render()

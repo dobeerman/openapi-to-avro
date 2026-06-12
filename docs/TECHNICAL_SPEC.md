@@ -23,6 +23,13 @@ Optional options:
 --enum-policy             fail, string, or sanitize. Default: fail.
 --unknown-object-policy   fail, map, string, or empty-record. Default: fail.
 --remove-name-suffixes    Comma-separated generated named-type suffixes to remove. Default: none.
+--references-output-dir   Also write Confluent Schema Registry referenced schemas to this directory.
+--references-manifest-output
+                          Manifest path for referenced schemas. Default: <references-output-dir>/manifest.json.
+--reference-subject-template
+                          Subject template. Supports {fullname}, {namespace}, {name}, and {rootname}. Default: {fullname}.
+--root-subject            Schema Registry subject for the root envelope. For Confluent TopicNameStrategy
+                          topic values, use <topic>-value.
 ```
 
 ## OpenAPI selection rules
@@ -154,3 +161,41 @@ root envelope fields remain unchanged.
 After generating the schema, validate it with `fastavro.parse_schema`.
 
 Validation failures should include enough context to identify the generated type that failed.
+
+## Confluent Schema Registry references
+
+When `--references-output-dir` is set, the CLI must still write the bundled
+self-contained schema to `--output` or stdout. It also writes one standalone
+schema file per generated Avro named type and a manifest describing Confluent
+Schema Registry registration metadata.
+
+Referenced-schema files must use fully qualified Avro names for dependencies.
+Reference subjects are formatted with `--reference-subject-template`. The root
+envelope subject may be overridden independently with `--root-subject`, which is
+the expected option for Confluent's default topic value subject, `<topic>-value`.
+The manifest must be deterministic and ordered so dependency subjects appear
+before schemas that reference them:
+
+```text
+shared leaf named types
+-> named types that depend on them
+-> GET response records
+-> root envelope schema
+```
+
+Manifest entries include:
+
+```json
+{
+  "fullname": "com.example.GetMatchResponse",
+  "subject": "com.example.GetMatchResponse",
+  "file": "com.example.GetMatchResponse.avsc",
+  "references": [
+    {
+      "name": "com.example.Venue",
+      "subject": "com.example.Venue",
+      "version": "latest"
+    }
+  ]
+}
+```
