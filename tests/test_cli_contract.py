@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -8,6 +9,11 @@ from typer.testing import CliRunner
 from openapi_get_avro.cli import app
 
 FIXTURES = Path(__file__).parent / "fixtures"
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(text: str) -> str:
+    return ANSI_ESCAPE_RE.sub("", text)
 
 
 def test_cli_generates_expected_schema(tmp_path: Path) -> None:
@@ -38,13 +44,19 @@ def test_cli_generates_expected_schema(tmp_path: Path) -> None:
 def test_cli_help_exposes_generation_policy_options() -> None:
     runner = CliRunner()
 
-    result = runner.invoke(app, ["generate", "--help"])
+    result = runner.invoke(
+        app,
+        ["generate", "--help"],
+        env={"COLUMNS": "120"},
+        terminal_width=120,
+    )
 
     assert result.exit_code == 0
-    assert "--name-strategy" in result.output
-    assert "--any-of-policy" in result.output
-    assert "--enum-policy" in result.output
-    assert "--unknown-object-policy" in result.output
+    help_output = _strip_ansi(result.output)
+    assert "--name-strategy" in help_output
+    assert "--any-of-policy" in help_output
+    assert "--enum-policy" in help_output
+    assert "--unknown-object-policy" in help_output
 
 
 def test_cli_include_status_codes_preserves_requested_order(tmp_path: Path) -> None:
