@@ -41,6 +41,18 @@ def _data_branches(schema: dict[str, object]) -> list[object]:
     return branches
 
 
+def _record_fields(record: dict[str, object]) -> dict[str, dict[str, object]]:
+    fields = record["fields"]
+    assert isinstance(fields, list)
+    typed_fields: dict[str, dict[str, object]] = {}
+    for field in fields:
+        assert isinstance(field, dict)
+        name = field["name"]
+        assert isinstance(name, str)
+        typed_fields[name] = field
+    return typed_fields
+
+
 def test_path_fallback_names_path_parameters_with_by_prefix() -> None:
     schema = convert_openapi_to_avro(
         _base_doc(
@@ -104,6 +116,194 @@ def test_duplicate_operation_ids_receive_deterministic_numeric_suffixes() -> Non
         "GetThingResponse",
         "GetThingResponse2",
     ]
+
+
+def test_remove_name_suffixes_keeps_current_output_unchanged_by_default() -> None:
+    schema = convert_openapi_to_avro(
+        _base_doc(
+            {
+                "/attributes": {
+                    "get": {
+                        "operationId": "getAttributeDto",
+                        "tags": ["Attribute"],
+                        "responses": _json_response({"$ref": "#/components/schemas/AttributeDto"}),
+                    }
+                }
+            },
+            {
+                "AttributeDto": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                }
+            },
+        ),
+        _options(),
+    )
+
+    branch = _data_branches(schema)[0]
+    assert isinstance(branch, dict)
+    assert branch["name"] == "GetAttributeDtoResponse"
+    assert branch["fields"] == [
+        {
+            "name": "id",
+            "type": ["null", "string"],
+            "default": None,
+        }
+    ]
+
+
+def test_remove_name_suffixes_renames_component_refs_and_response_records() -> None:
+    schema = convert_openapi_to_avro(
+        _base_doc(
+            {
+                "/attributes": {
+                    "get": {
+                        "operationId": "getAttributeDto",
+                        "tags": ["Attribute"],
+                        "responses": _json_response(
+                            {
+                                "type": "object",
+                                "required": ["attributeDto", "roleDto"],
+                                "properties": {
+                                    "attributeDto": {"$ref": "#/components/schemas/AttributeDto"},
+                                    "roleDto": {
+                                        "type": "object",
+                                        "required": ["id"],
+                                        "properties": {"id": {"type": "string"}},
+                                    },
+                                },
+                            }
+                        ),
+                    }
+                }
+            },
+            {
+                "AttributeDto": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                }
+            },
+        ),
+        GenerationOptions(
+            namespace="com.example.naming",
+            root_name="NamingEnvelope",
+            remove_name_suffixes=("Dto",),
+        ),
+    )
+
+    branch = _data_branches(schema)[0]
+    assert isinstance(branch, dict)
+    assert branch["name"] == "GetAttributeResponse"
+    fields = _record_fields(branch)
+    assert list(fields) == ["attributeDto", "roleDto"]
+    assert isinstance(fields["attributeDto"]["type"], dict)
+    assert fields["attributeDto"]["type"]["name"] == "Attribute"
+    assert isinstance(fields["roleDto"]["type"], dict)
+    assert fields["roleDto"]["type"]["name"] == "GetAttributeResponseRole"
+
+
+def test_remove_name_suffixes_resolves_collisions_deterministically() -> None:
+    schema = convert_openapi_to_avro(
+        _base_doc(
+            {
+                "/attributes": {
+                    "get": {
+                        "operationId": "getAttributes",
+                        "tags": ["Attribute"],
+                        "responses": _json_response(
+                            {
+                                "type": "object",
+                                "required": ["dto", "plain"],
+                                "properties": {
+                                    "dto": {"$ref": "#/components/schemas/AttributeDto"},
+                                    "plain": {"$ref": "#/components/schemas/Attribute"},
+                                },
+                            }
+                        ),
+                    }
+                }
+            },
+            {
+                "AttributeDto": {
+                    "type": "object",
+                    "properties": {"dtoId": {"type": "string"}},
+                },
+                "Attribute": {
+                    "type": "object",
+                    "properties": {"plainId": {"type": "string"}},
+                },
+            },
+        ),
+        GenerationOptions(
+            namespace="com.example.naming",
+            root_name="NamingEnvelope",
+            remove_name_suffixes=("Dto",),
+        ),
+    )
+
+    branch = _data_branches(schema)[0]
+    assert isinstance(branch, dict)
+    fields = _record_fields(branch)
+    assert isinstance(fields["dto"]["type"], dict)
+    assert isinstance(fields["plain"]["type"], dict)
+    assert fields["dto"]["type"]["name"] == "Attribute"
+    assert fields["plain"]["type"]["name"] == "Attribute2"
+
+
+def test_remove_name_suffixes_is_case_sensitive() -> None:
+    openapi_doc = _base_doc(
+        {
+            "/attributes": {
+                "get": {
+                    "operationId": "getAttributes",
+                    "tags": ["Attribute"],
+                    "responses": _json_response(
+                        {
+                            "type": "object",
+                            "required": ["attribute"],
+                            "properties": {
+                                "attribute": {"$ref": "#/components/schemas/AttributeDTO"}
+                            },
+                        }
+                    ),
+                }
+            }
+        },
+        {
+            "AttributeDTO": {
+                "type": "object",
+                "properties": {"id": {"type": "string"}},
+            }
+        },
+    )
+
+    unchanged = convert_openapi_to_avro(
+        openapi_doc,
+        GenerationOptions(
+            namespace="com.example.naming",
+            root_name="NamingEnvelope",
+            remove_name_suffixes=("Dto",),
+        ),
+    )
+    stripped = convert_openapi_to_avro(
+        openapi_doc,
+        GenerationOptions(
+            namespace="com.example.naming",
+            root_name="NamingEnvelope",
+            remove_name_suffixes=("DTO",),
+        ),
+    )
+
+    unchanged_branch = _data_branches(unchanged)[0]
+    stripped_branch = _data_branches(stripped)[0]
+    assert isinstance(unchanged_branch, dict)
+    assert isinstance(stripped_branch, dict)
+    unchanged_fields = _record_fields(unchanged_branch)
+    stripped_fields = _record_fields(stripped_branch)
+    assert isinstance(unchanged_fields["attribute"]["type"], dict)
+    assert isinstance(stripped_fields["attribute"]["type"], dict)
+    assert unchanged_fields["attribute"]["type"]["name"] == "AttributeDto"
+    assert stripped_fields["attribute"]["type"]["name"] == "Attribute"
 
 
 def test_component_refs_are_inlined_once_then_reused_by_name() -> None:

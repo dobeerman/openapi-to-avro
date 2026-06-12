@@ -21,6 +21,7 @@ Optional options:
 --any-of-policy           fail or union. Default: fail.
 --enum-policy             fail, string, or sanitize. Default: fail.
 --unknown-object-policy   fail, map, string, or empty-record. Default: fail.
+--remove-name-suffixes    Comma-separated generated named-type suffixes to remove. Default: none.
 ```
 
 ## OpenAPI selection rules
@@ -137,6 +138,10 @@ Rules:
 - Sort selected response status codes according to the order in `--include-status-codes`.
 - Use stable generated names.
 - Use `json.dumps(..., indent=2)` for output.
+
+When `--remove-name-suffixes` is configured, remove exact trailing suffix matches
+from generated Avro named types after converting the source text to Avro name
+shape. Do not mutate field/property names.
 
 ## Validation
 

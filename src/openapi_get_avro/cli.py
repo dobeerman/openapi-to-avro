@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Annotated, Any, TypeVar
 
@@ -19,6 +20,7 @@ app = typer.Typer(
 
 TChoice = TypeVar("TChoice", bound=str)
 
+AVRO_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 NAME_STRATEGIES: tuple[NameStrategy, ...] = ("operationId", "path")
 ANY_OF_POLICIES: tuple[AnyOfPolicy, ...] = ("fail", "union")
 ENUM_POLICIES: tuple[EnumPolicy, ...] = ("fail", "string", "sanitize")
@@ -59,6 +61,21 @@ def _parse_status_codes(value: str) -> tuple[str, ...]:
     if not status_codes:
         raise typer.BadParameter("--include-status-codes must include at least one status code")
     return status_codes
+
+
+def _parse_name_suffixes(value: str) -> tuple[str, ...]:
+    if not value:
+        return ()
+    suffixes = tuple(suffix.strip() for suffix in value.split(","))
+    if any(not suffix for suffix in suffixes):
+        raise typer.BadParameter("--remove-name-suffixes cannot contain empty suffixes")
+    invalid_suffixes = [suffix for suffix in suffixes if not AVRO_NAME_RE.fullmatch(suffix)]
+    if invalid_suffixes:
+        invalid = ", ".join(repr(suffix) for suffix in invalid_suffixes)
+        raise typer.BadParameter(
+            f"--remove-name-suffixes values must be valid Avro name suffixes: {invalid}"
+        )
+    return suffixes
 
 
 @app.command()
@@ -105,6 +122,13 @@ def generate(
             help="Unknown object policy: fail, map, string, or empty-record",
         ),
     ] = "fail",
+    remove_name_suffixes: Annotated[
+        str,
+        typer.Option(
+            "--remove-name-suffixes",
+            help="Comma-separated generated Avro named-type suffixes to remove",
+        ),
+    ] = "",
 ) -> None:
     """Generate an Avro envelope schema from GET responses in an OpenAPI document."""
     try:
@@ -123,6 +147,7 @@ def generate(
                 UNKNOWN_OBJECT_POLICIES,
                 "--unknown-object-policy",
             ),
+            remove_name_suffixes=_parse_name_suffixes(remove_name_suffixes),
         )
         avro_schema = convert_openapi_to_avro(openapi_doc, options)
         rendered = json.dumps(avro_schema, indent=2, ensure_ascii=False) + "\n"
