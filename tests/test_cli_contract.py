@@ -217,7 +217,8 @@ def test_cli_rejects_empty_remove_name_suffix() -> None:
     )
 
     assert result.exit_code != 0
-    assert "--remove-name-suffixes cannot contain empty suffixes" in result.output
+    error_output = _strip_ansi(result.output)
+    assert "--remove-name-suffixes cannot contain empty suffixes" in error_output
 
 
 def test_cli_rejects_invalid_remove_name_suffix() -> None:
@@ -239,8 +240,9 @@ def test_cli_rejects_invalid_remove_name_suffix() -> None:
     )
 
     assert result.exit_code != 0
-    assert "--remove-name-suffixes values must be valid Avro name" in result.output
-    assert "suffixes: '!Bad'" in result.output
+    error_output = _strip_ansi(result.output)
+    assert "--remove-name-suffixes values must be valid Avro name" in error_output
+    assert "suffixes: '!Bad'" in error_output
 
 
 def test_cli_error_message_includes_input_path_and_get_response(tmp_path: Path) -> None:
