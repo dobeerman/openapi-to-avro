@@ -149,7 +149,7 @@ class _Converter:
         if isinstance(avro_type, dict) and avro_type.get("type") == "record":
             return avro_type
 
-        record_name = self._allocate_name(self._pascal(name_hint), name_identity)
+        record_name = self._allocate_name(name_hint, name_identity)
         return {
             "type": "record",
             "name": record_name,
@@ -352,15 +352,23 @@ class _Converter:
                 field["doc"] = description
             fields.append(field)
 
-        record_name = self._allocate_name(
-            self._pascal(name_hint), name_identity or ("record", self._schema_fingerprint(schema))
-        )
+        record_name = self._record_name(name_hint, name_identity, schema)
         record: JsonDict = {"type": "record", "name": record_name}
         doc = record_doc if record_doc is not None else schema.get("description")
         if isinstance(doc, str):
             record["doc"] = doc
         record["fields"] = fields
         return record
+
+    def _record_name(
+        self, name_hint: str, name_identity: NameIdentity | None, schema: JsonDict
+    ) -> str:
+        if name_identity is not None:
+            return self._allocate_name(name_hint, name_identity)
+        return self._allocate_name(
+            self._named_type_base(name_hint, "record name"),
+            ("record", self._schema_fingerprint(schema)),
+        )
 
     def _flatten_all_of(self, schema: JsonDict, name_hint: str) -> JsonDict:
         branches = schema.get("allOf")
@@ -488,7 +496,10 @@ class _Converter:
             return self.ref_names[ref]
 
         component_name = self._ref_name(schema)
-        allocated_name = self._allocate_name(self._pascal(component_name), ("component-ref", ref))
+        allocated_name = self._allocate_name(
+            self._named_type_base(component_name, "component ref name"),
+            ("component-ref", ref),
+        )
         self.ref_names[ref] = allocated_name
         if ref in self.refs_in_progress:
             return allocated_name
@@ -551,10 +562,10 @@ class _Converter:
             raise UnsupportedSchemaError(f"Enum schema {name_hint} must contain string values")
         symbols = [self._require_enum_symbol(value, f"enum {name_hint}") for value in enum_values]
         if name_identity is not None:
-            enum_name = self._allocate_name(self._pascal(name_hint), name_identity)
+            enum_name = self._allocate_name(name_hint, name_identity)
         else:
             enum_name = self._allocate_name(
-                f"{self._pascal(name_hint)}Enum", ("enum", tuple(symbols))
+                f"{self._named_type_base(name_hint, 'enum name')}Enum", ("enum", tuple(symbols))
             )
         return {
             "type": "enum",
@@ -642,9 +653,11 @@ class _Converter:
 
     def _response_record_name(self, operation: SelectedOperation) -> str:
         if self.options.name_strategy == "operationId" and operation.operation_id:
-            base = self._pascal(operation.operation_id)
+            base = self._named_type_base(operation.operation_id, "response record name")
         else:
-            base = self._path_name(operation.method, operation.path)
+            base = self._strip_configured_suffixes(
+                self._path_name(operation.method, operation.path), "response record name"
+            )
         if len(self.options.include_status_codes) > 1:
             base = f"{base}{self._status_suffix(operation.status_code)}"
         return self._allocate_name(f"{base}Response", self._response_identity(operation))
@@ -680,6 +693,37 @@ class _Converter:
         if name[0].isdigit():
             name = f"N{name}"
         return name
+
+    def _named_type_base(self, text: str, context: str) -> str:
+        return self._strip_configured_suffixes(self._pascal(text), context, source_text=text)
+
+    def _strip_configured_suffixes(
+        self, name: str, context: str, *, source_text: str | None = None
+    ) -> str:
+        for suffix in self.options.remove_name_suffixes:
+            self._require_avro_name(suffix, "configured name suffix")
+            name_matches = name.endswith(suffix)
+            source_matches = source_text is not None and source_text.endswith(suffix)
+            if not name_matches and not source_matches:
+                continue
+            if name_matches and self._has_case_variant_suffix(source_text, suffix):
+                continue
+            stripped = name[: -len(suffix)]
+            if not stripped:
+                raise AvroNameError(
+                    f"Cannot remove suffix {suffix!r} from generated Avro {context} {name!r}: "
+                    "result would be empty"
+                )
+            return self._require_avro_name(stripped, context)
+        return name
+
+    def _has_case_variant_suffix(self, text: str | None, suffix: str) -> bool:
+        if text is None:
+            return False
+        if len(text) < len(suffix):
+            return False
+        raw_suffix = text[-len(suffix) :]
+        return raw_suffix.lower() == suffix.lower() and raw_suffix != suffix
 
     def _allocate_name(self, preferred_name: str, identity: NameIdentity) -> str:
         name = self._sanitize_avro_name(preferred_name, "generated name")

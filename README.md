@@ -67,6 +67,7 @@ uv run openapi-get-avro generate \
   --any-of-policy fail \
   --enum-policy fail \
   --unknown-object-policy fail \
+  --remove-name-suffixes Dto \
   --output build/sports-envelope.avsc
 ```
 
@@ -77,6 +78,7 @@ Accepted CLI values:
 - `--enum-policy`: `fail`, `string`, or `sanitize`
 - `--unknown-object-policy`: `fail`, `map`, `string`, or `empty-record`
 - `--include-status-codes`: comma-separated response codes, evaluated in the order provided
+- `--remove-name-suffixes`: comma-separated, case-sensitive suffixes removed from generated Avro named types, for example `Dto`
 
 The implemented strict behavior is the default: invalid enum values and ambiguous
 free-form objects fail. `--any-of-policy union` is implemented when every branch

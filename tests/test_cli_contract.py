@@ -57,6 +57,7 @@ def test_cli_help_exposes_generation_policy_options() -> None:
     assert "--any-of-policy" in help_output
     assert "--enum-policy" in help_output
     assert "--unknown-object-policy" in help_output
+    assert "--remove-name-suffixes" in help_output
 
 
 def test_cli_include_status_codes_preserves_requested_order(tmp_path: Path) -> None:
@@ -195,6 +196,53 @@ def test_cli_name_strategy_path_overrides_operation_id(tmp_path: Path) -> None:
     actual = json.loads(output_path.read_text(encoding="utf-8"))
     data_field = actual["fields"][-1]
     assert data_field["type"][0]["name"] == "GetMatchesByMatchIdLineupsResponse"
+
+
+def test_cli_rejects_empty_remove_name_suffix() -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        [
+            "generate",
+            "--input",
+            str(FIXTURES / "minimal.openapi.json"),
+            "--namespace",
+            "com.example.sports",
+            "--rootname",
+            "SportsEnvelope",
+            "--remove-name-suffixes",
+            "Dto,",
+        ],
+    )
+
+    assert result.exit_code != 0
+    error_output = _strip_ansi(result.output)
+    assert "--remove-name-suffixes cannot contain empty suffixes" in error_output
+
+
+def test_cli_rejects_invalid_remove_name_suffix() -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        [
+            "generate",
+            "--input",
+            str(FIXTURES / "minimal.openapi.json"),
+            "--namespace",
+            "com.example.sports",
+            "--rootname",
+            "SportsEnvelope",
+            "--remove-name-suffixes",
+            "Dto,!Bad",
+        ],
+    )
+
+    assert result.exit_code != 0
+    error_output = _strip_ansi(result.output)
+    assert "--remove-name-suffixes values must be valid Avro name" in error_output
+    assert "suffixes: '!Bad'" in error_output
 
 
 def test_cli_error_message_includes_input_path_and_get_response(tmp_path: Path) -> None:
