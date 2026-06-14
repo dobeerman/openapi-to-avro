@@ -60,6 +60,7 @@ def test_cli_help_exposes_generation_policy_options() -> None:
     assert "--include-response-records" in help_output
     assert "--remove-name-suffixes" in help_output
     assert "--field-name-case" in help_output
+    assert "--enforce-timestamp" in help_output
     assert "--references-output-dir" in help_output
     assert "--references-manifest-output" in help_output
     assert "--reference-subject-template" in help_output
@@ -262,6 +263,72 @@ def test_cli_field_name_case_transforms_payload_field_names(tmp_path: Path) -> N
     data_field = actual["fields"][-1]
     branch = data_field["type"][0]
     assert branch["fields"][0]["name"] == "lineup_version"
+
+
+def test_cli_enforce_timestamp_maps_date_to_timestamp_millis(tmp_path: Path) -> None:
+    runner = CliRunner()
+    input_path = tmp_path / "temporal.openapi.json"
+    output_path = tmp_path / "schema.avsc"
+    input_path.write_text(
+        json.dumps(
+            {
+                "openapi": "3.0.3",
+                "info": {"title": "Temporal API"},
+                "paths": {
+                    "/event": {
+                        "get": {
+                            "operationId": "getEvent",
+                            "tags": ["Event"],
+                            "responses": {
+                                "200": {
+                                    "content": {
+                                        "application/json": {
+                                            "schema": {
+                                                "type": "object",
+                                                "required": ["businessDate"],
+                                                "properties": {
+                                                    "businessDate": {
+                                                        "type": "string",
+                                                        "format": "date",
+                                                    }
+                                                },
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "generate",
+            "--input",
+            str(input_path),
+            "--namespace",
+            "com.example.temporal",
+            "--rootname",
+            "TemporalEnvelope",
+            "--enforce-timestamp",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    actual = json.loads(output_path.read_text(encoding="utf-8"))
+    data_field = actual["fields"][-1]
+    branch = data_field["type"][0]
+    assert branch["fields"][0]["type"] == {
+        "type": "long",
+        "logicalType": "timestamp-millis",
+    }
 
 
 def test_cli_rejects_invalid_field_name_case() -> None:

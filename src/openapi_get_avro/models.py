@@ -27,6 +27,7 @@ class GenerationOptions:
     any_of_policy: AnyOfPolicy = "fail"
     enum_policy: EnumPolicy = "fail"
     timestamp_logical_type: Literal["timestamp-millis", "string"] = "timestamp-millis"
+    enforce_timestamp: bool = False
     remove_name_suffixes: tuple[str, ...] = ()
     include_response_records: tuple[str, ...] = ()
 

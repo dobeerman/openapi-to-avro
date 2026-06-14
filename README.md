@@ -27,6 +27,40 @@ uv run openapi-get-avro generate \
 
 If `--output` is omitted, the generated `.avsc` JSON is written to stdout.
 
+You can also infer an Avro record schema from a JSON file containing an array of
+similar objects:
+
+```bash
+uv run openapi-get-avro infer-json examples/events.json \
+  --name Event \
+  --namespace com.example.events \
+  --enforce-timestamp \
+  --output build/Event.avsc
+```
+
+`infer-json` treats fields present in every object as required. Fields missing
+from at least one object, or present with `null` in at least one object, become
+nullable optional Avro fields with a `null` default. Nested objects and arrays
+are inferred recursively. Ambiguous samples fail with a human-readable error:
+mixed observed types such as `123` and `"123"`, fields whose values are always
+`null`, and arrays whose observed items are always empty are rejected. String
+fields whose non-null observed values are all valid UUIDs are emitted with
+Avro's `uuid` logical type. With `--enforce-timestamp`, ISO date and date-time
+strings are emitted as Avro `timestamp-millis`.
+
+To reuse structurally identical inferred records as Avro named references:
+
+```bash
+uv run openapi-get-avro infer-json examples/events.json \
+  --name Event \
+  --namespace com.example.events \
+  --reuse-record-shapes \
+  --output build/Event.avsc
+```
+
+For example, repeated numeric `{ "x": ..., "y": ..., "z": ... }` records are
+generated once as `Position` and later fields reference that named type.
+
 The converter reads JSON and YAML OpenAPI files. This example exercises `allOf`
 composition, maps, arrays, and `oneOf` unions:
 
@@ -84,6 +118,7 @@ uv run openapi-get-avro generate \
   --include-response-records Venues,MatchParticipants \
   --content-type application/json \
   --field-name-case snake_case \
+  --enforce-timestamp \
   --any-of-policy fail \
   --enum-policy fail \
   --unknown-object-policy fail \
@@ -98,6 +133,7 @@ Accepted CLI values:
 - `--any-of-policy`: `fail` or `union`
 - `--enum-policy`: `fail`, `string`, or `sanitize`
 - `--unknown-object-policy`: `fail`, `map`, `string`, or `empty-record`
+- `--enforce-timestamp`: maps string formats `date`, `date-time`, and `timestamp` to Avro `timestamp-millis`
 - `--include-status-codes`: comma-separated response codes, evaluated in the order provided
 - `--include-response-records`: comma-separated exact response selectors; for example `Venues` matches `GetApiVenues200Response`, and `VenuesAttributes` matches `GetApiVenuesAttributes200Response`
 - `--remove-name-suffixes`: comma-separated, case-sensitive suffixes removed from generated Avro named types, for example `Dto`
