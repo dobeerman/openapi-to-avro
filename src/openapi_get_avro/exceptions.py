@@ -15,3 +15,7 @@ class InvalidOpenApiError(OpenApiAvroError):
 
 class AvroNameError(OpenApiAvroError):
     """Raised when a valid deterministic Avro name cannot be produced."""
+
+
+class JsonInferenceError(OpenApiAvroError):
+    """Raised when JSON samples cannot be safely inferred as an Avro schema."""

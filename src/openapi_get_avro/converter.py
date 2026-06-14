@@ -668,7 +668,11 @@ class _Converter:
         }
 
     def _string_to_avro(self, schema: JsonDict) -> Any:
-        match schema.get("format"):
+        schema_format = schema.get("format")
+        if self.options.enforce_timestamp and schema_format in {"date", "date-time", "timestamp"}:
+            return {"type": "long", "logicalType": "timestamp-millis"}
+
+        match schema_format:
             case "uuid":
                 return {"type": "string", "logicalType": "uuid"}
             case "date":

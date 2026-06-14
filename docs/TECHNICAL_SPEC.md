@@ -24,6 +24,8 @@ Optional options:
 --any-of-policy           fail or union. Default: fail.
 --enum-policy             fail, string, or sanitize. Default: fail.
 --unknown-object-policy   fail, map, string, or empty-record. Default: fail.
+--enforce-timestamp       Map string formats date, date-time, and timestamp to
+                          Avro timestamp-millis. Default: false.
 --remove-name-suffixes    Comma-separated generated named-type suffixes to remove. Default: none.
 --references-output-dir   Also write Confluent Schema Registry referenced schemas to this directory.
 --references-manifest-output

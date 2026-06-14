@@ -16,6 +16,10 @@
 | `type: number` | `double` |
 | `type: boolean` | `boolean` |
 
+When `--enforce-timestamp` is set, string schemas with `format: date`,
+`format: date-time`, or `format: timestamp` all map to
+`{ "type": "long", "logicalType": "timestamp-millis" }`.
+
 ## Objects
 
 OpenAPI object schemas become Avro records.

@@ -124,6 +124,44 @@ def test_complex_fixture_flattens_all_of_and_maps_one_of_to_union() -> None:
     parse_schema(schema)
 
 
+def test_enforce_timestamp_maps_temporal_string_formats_to_timestamp_millis() -> None:
+    openapi_doc = _base_doc(
+        {
+            "/events": {
+                "get": {
+                    "operationId": "getEvent",
+                    "tags": ["Event"],
+                    "responses": _json_response(
+                        {
+                            "type": "object",
+                            "required": ["businessDate", "createdAt", "externalTimestamp"],
+                            "properties": {
+                                "businessDate": {"type": "string", "format": "date"},
+                                "createdAt": {"type": "string", "format": "date-time"},
+                                "externalTimestamp": {"type": "string", "format": "timestamp"},
+                                "publishedDate": {"type": "string", "format": "date"},
+                            },
+                        }
+                    ),
+                }
+            }
+        },
+        {},
+    )
+
+    schema = convert_openapi_to_avro(openapi_doc, _options(enforce_timestamp=True))
+
+    branch = _data_branches(schema)[0]
+    assert isinstance(branch, dict)
+    fields = _record_fields(branch)
+    timestamp_type = {"type": "long", "logicalType": "timestamp-millis"}
+    assert fields["businessDate"]["type"] == timestamp_type
+    assert fields["createdAt"]["type"] == timestamp_type
+    assert fields["externalTimestamp"]["type"] == timestamp_type
+    assert fields["publishedDate"]["type"] == ["null", timestamp_type]
+    parse_schema(schema)
+
+
 def test_top_level_array_response_is_wrapped_in_named_record() -> None:
     openapi_doc = _base_doc(
         {

@@ -12,6 +12,7 @@ from ruamel.yaml import YAML
 
 from .converter import convert_openapi_to_avro, convert_openapi_to_referenced_avro
 from .exceptions import OpenApiAvroError
+from .json_inferer import JsonInferenceOptions, infer_json_to_avro
 from .models import (
     AnyOfPolicy,
     EnumPolicy,
@@ -60,6 +61,10 @@ def _load_document(path: Path) -> dict[str, Any]:
     if not isinstance(loaded, dict):
         raise typer.BadParameter("Input document must be a JSON/YAML object")
     return loaded
+
+
+def _load_json_samples(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _parse_choice(value: str, allowed: tuple[TChoice, ...], option_name: str) -> TChoice:
@@ -203,6 +208,13 @@ def generate(
             help="Unknown object policy: fail, map, string, or empty-record",
         ),
     ] = "fail",
+    enforce_timestamp: Annotated[
+        bool,
+        typer.Option(
+            "--enforce-timestamp",
+            help=("Map string formats date, date-time, and timestamp to Avro timestamp-millis"),
+        ),
+    ] = False,
     remove_name_suffixes: Annotated[
         str,
         typer.Option(
@@ -270,6 +282,7 @@ def generate(
                 UNKNOWN_OBJECT_POLICIES,
                 "--unknown-object-policy",
             ),
+            enforce_timestamp=enforce_timestamp,
             remove_name_suffixes=_parse_name_suffixes(remove_name_suffixes),
             include_response_records=_parse_response_record_selectors(include_response_records),
         )
@@ -296,6 +309,57 @@ def generate(
             output.write_text(rendered, encoding="utf-8")
     except (OpenApiAvroError, json.JSONDecodeError, OSError, ValueError) as exc:
         typer.echo(f"Failed to generate Avro schema for {input}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
+@app.command("infer-json")
+def infer_json(
+    input: Annotated[
+        Path,
+        typer.Argument(exists=True, readable=True, help="JSON file containing an array of objects"),
+    ],
+    name: Annotated[str, typer.Option("--name", help="Avro record name")],
+    namespace: Annotated[
+        str, typer.Option("--namespace", help="Avro namespace for the inferred record")
+    ],
+    output: Annotated[
+        Path | None, typer.Option("--output", "-o", help="Output .avsc file, defaults to stdout")
+    ] = None,
+    reuse_record_shapes: Annotated[
+        bool,
+        typer.Option(
+            "--reuse-record-shapes",
+            help="Reuse structurally identical inferred records as Avro named references",
+        ),
+    ] = False,
+    enforce_timestamp: Annotated[
+        bool,
+        typer.Option(
+            "--enforce-timestamp",
+            help="Infer ISO date and date-time strings as Avro timestamp-millis",
+        ),
+    ] = False,
+) -> None:
+    """Infer an Avro record schema from a JSON array of similar objects."""
+    try:
+        samples = _load_json_samples(input)
+        avro_schema = infer_json_to_avro(
+            samples,
+            JsonInferenceOptions(
+                namespace=namespace,
+                name=name,
+                reuse_record_shapes=reuse_record_shapes,
+                enforce_timestamp=enforce_timestamp,
+            ),
+        )
+        rendered = _render_json(avro_schema)
+        if output is None:
+            typer.echo(rendered, nl=False)
+        else:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(rendered, encoding="utf-8")
+    except (OpenApiAvroError, json.JSONDecodeError, OSError, ValueError) as exc:
+        typer.echo(f"Failed to infer Avro schema for {input}: {exc}", err=True)
         raise typer.Exit(1) from exc
 
 
